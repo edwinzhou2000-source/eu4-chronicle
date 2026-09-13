@@ -1,0 +1,76 @@
+# EU4 Chronicle 最小合成样例（非真实游戏导出）
+# 用途：无真档时演示解析 / Diff / 多角色流水线
+date="1444.11.11"
+player="BYZ"
+ironman=no
+countries={
+	BYZ={
+		name="Byzantium"
+		development=88
+		religion="orthodox"
+		stability=0
+		prestige=10
+		manpower=12
+		max_manpower=18
+		army_size=14
+		navy_size=8
+		technology={
+			adm_tech=3
+			dip_tech=3
+			mil_tech=3
+		}
+		monarch={
+			name="Konstantinos"
+			adm=3
+			dip=2
+			mil=4
+		}
+		owned_provinces={ 151 149 316 }
+		core_provinces={ 151 149 316 }
+		allies={ WAL }
+		rivals={ TUR }
+		subjects={ }
+		ae_TUR=5
+		opinion_TUR=-80
+		opinion_WAL=80
+	}
+	TUR={
+		name="Ottomans"
+		development=220
+		religion="sunni"
+		stability=1
+		prestige=20
+		manpower=40
+		max_manpower=55
+		army_size=40
+		navy_size=20
+		technology={
+			adm_tech=3
+			dip_tech=3
+			mil_tech=4
+		}
+		monarch={
+			name="Mehmed"
+			adm=4
+			dip=3
+			mil=5
+		}
+		owned_provinces={ 317 318 2296 1491 }
+		core_provinces={ 317 318 2296 }
+		allies={ }
+		rivals={ BYZ }
+		ae_BYZ=0
+		opinion_BYZ=-100
+	}
+	WAL={
+		name="Wallachia"
+		development=20
+		religion="orthodox"
+		owned_provinces={ 161 }
+		core_provinces={ 161 }
+		allies={ BYZ }
+		army_size=6
+	}
+}
+active_wars={
+}

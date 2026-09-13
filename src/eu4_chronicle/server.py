@@ -1,0 +1,83 @@
+"""本机 FastAPI：列表存档、触发分析、返回战报。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+from eu4_chronicle.config import get_settings
+from eu4_chronicle.pipeline import analyze_saves
+
+app = FastAPI(
+    title="EU4 Chronicle",
+    description="本机 EU4 存档 Diff 与多角色战报服务（仅绑定本机回环地址）",
+    version="0.1.0",
+)
+
+
+class AnalyzeRequest(BaseModel):
+    prev: str = Field(..., description="较早存档文件名或绝对路径")
+    curr: str = Field(..., description="较新存档文件名或绝对路径")
+    mode: str | None = Field(None, description="mock 或 llm")
+
+
+def _resolve_save(path_or_name: str) -> Path:
+    settings = get_settings()
+    p = Path(path_or_name)
+    if p.is_file():
+        return p
+    candidate = settings.save_dir / path_or_name
+    if candidate.is_file():
+        return candidate
+    raise HTTPException(status_code=404, detail=f"找不到存档: {path_or_name}")
+
+
+@app.get("/health")
+def health() -> dict:
+    settings = get_settings()
+    return {
+        "ok": True,
+        "mode": settings.resolved_mode(),
+        "save_dir": str(settings.save_dir),
+        "save_dir_exists": settings.save_dir.exists(),
+    }
+
+
+@app.get("/saves")
+def list_saves() -> dict:
+    settings = get_settings()
+    directory = settings.save_dir
+    if not directory.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"存档目录不存在: {directory}。请设置环境变量 EU4_SAVE_DIR。",
+        )
+    files = []
+    for f in sorted(directory.glob("*.eu4")):
+        files.append(
+            {
+                "name": f.name,
+                "path": str(f),
+                "size": f.stat().st_size,
+                "mtime": f.stat().st_mtime,
+            }
+        )
+    return {"save_dir": str(directory), "files": files}
+
+
+@app.post("/analyze")
+async def analyze(body: AnalyzeRequest) -> dict:
+    settings = get_settings()
+    if body.mode:
+        settings = settings.model_copy(update={"mode": body.mode})
+    prev = _resolve_save(body.prev)
+    curr = _resolve_save(body.curr)
+    try:
+        report = await analyze_saves(prev, curr, settings=settings)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return report.model_dump()

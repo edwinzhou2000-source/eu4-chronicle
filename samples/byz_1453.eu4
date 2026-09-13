@@ -1,0 +1,98 @@
+# EU4 Chronicle 最小合成样例（后期档）
+date="1453.5.29"
+player="BYZ"
+ironman=no
+countries={
+	BYZ={
+		name="Byzantium"
+		development=102
+		religion="orthodox"
+		stability=-1
+		prestige=25
+		manpower=6
+		max_manpower=16
+		army_size=10
+		navy_size=6
+		technology={
+			adm_tech=4
+			dip_tech=3
+			mil_tech=4
+		}
+		monarch={
+			name="Konstantinos"
+			adm=3
+			dip=2
+			mil=4
+		}
+		owned_provinces={ 151 149 316 317 }
+		core_provinces={ 151 149 316 317 }
+		allies={ }
+		rivals={ TUR }
+		subjects={ ATH }
+		ae_TUR=35
+		opinion_TUR=-120
+		opinion_WAL=20
+	}
+	TUR={
+		name="Ottomans"
+		development=210
+		religion="sunni"
+		stability=0
+		prestige=5
+		manpower=28
+		max_manpower=50
+		army_size=32
+		navy_size=18
+		technology={
+			adm_tech=3
+			dip_tech=3
+			mil_tech=4
+		}
+		monarch={
+			name="Mehmed"
+			adm=4
+			dip=3
+			mil=5
+		}
+		owned_provinces={ 318 2296 1491 }
+		core_provinces={ 317 318 2296 }
+		allies={ }
+		rivals={ BYZ }
+		ae_BYZ=0
+		opinion_BYZ=-150
+	}
+	WAL={
+		name="Wallachia"
+		development=20
+		religion="orthodox"
+		owned_provinces={ 161 }
+		core_provinces={ 161 }
+		allies={ }
+		army_size=5
+	}
+	ATH={
+		name="Athens"
+		development=12
+		religion="orthodox"
+		owned_provinces={ 1773 }
+		core_provinces={ 1773 }
+		army_size=3
+	}
+}
+active_wars={
+	war={
+		name="Byzantine Reconquest of Hüdavendigar"
+		attackers={ BYZ }
+		defenders={ TUR }
+		participants={
+			BYZ={
+				side="attackers"
+				warscore=42
+			}
+			TUR={
+				side="defenders"
+				warscore=-42
+			}
+		}
+	}
+}
