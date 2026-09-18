@@ -170,6 +170,71 @@ def test_high_warscore_not_undecided():
     assert "粮草" not in war
     assert "分数打实" not in war
     assert "补给" not in war
+    # 叙事已写「玩家总战分 +68」时，tier 不再括号重复战分
+    assert "玩家总战分 +68，优势在握，基本打赢" in narrative
+    assert "基本打赢（战分 +68）" not in narrative
+    assert "下一页按战分" not in md
+    assert "按战分与编制事实推进" not in md
+
+
+def test_mock_ticking_dedup_and_no_next_page_fluff():
+    """叙事/要点各至多一句 ticking；成稿不含「下一页按战分」类套话。"""
+    names = NameResolver()
+    diff = names.rewrite_diff(
+        _teu_diff(
+            DiffEvent(
+                kind="war_started",
+                tag="TEU",
+                summary="war",
+                detail={
+                    "name": "Teutonic Conquest of Naklo",
+                    "name_zh": "条顿骑士团征服纳克沃",
+                    "attackers": ["TEU"],
+                    "defenders": ["POL"],
+                    "participants": ["TEU", "POL"],
+                    "player_warscore": 64.0,
+                    "player_ticking_warscore": 16.8,
+                    "scores": {"TEU": 64.0},
+                    "war_goal_type": "take_claim",
+                    "war_goal_province": 2963,
+                },
+            ),
+            DiffEvent(
+                kind="manpower_changed",
+                tag="TEU",
+                summary="人力",
+                detail={"from": 15.2, "to": 8.5, "max_from": 20.0, "max_to": 20.0},
+            ),
+        )
+    )
+    ae = assess_player_ae(diff, country_label=names.country)
+    md = _mock_editor(diff, names, ae)
+    narrative = _mock_narrative_paragraph(diff, names, ae)
+    war = _mock_war_section(diff, names, ae, heading=False)
+
+    assert narrative.lower().count("ticking") == 1
+    assert war.lower().count("ticking") == 1
+    assert "目标 ticking +17（非总战分）" in narrative
+    assert "目标 ticking +17（非总战分）" in war
+    assert "战争目标 ticking +17" not in narrative
+    assert narrative.count("战争目标 ticking") == 0
+    assert "玩家总战分 +64，优势在握，基本打赢" in narrative
+    assert "基本打赢（战分 +64）" not in narrative
+    assert "下一页按战分" not in md
+    assert "按战分与编制事实推进" not in md
+    assert "下一页仍以 Diff 为准" not in md
+    assert "下一页看附庸" not in md
+    assert not contains_banned_empty_phrase(md), md
+    # 全稿 ticking：叙事一次 + 要点一次（标题/结尾不应再写）
+    sections = md.split("## ")
+    narrative_block = next(s for s in sections if s.startswith("叙事"))
+    war_block = next(s for s in sections if s.startswith("战局要点"))
+    assert narrative_block.lower().count("ticking") == 1
+    assert war_block.lower().count("ticking") == 1
+    # 结尾段不得含 ticking 或下一页套话
+    ending = md.split("---")[-1]
+    assert "ticking" not in ending.lower()
+    assert "下一页" not in ending
 
 
 def test_mock_has_no_banned_empty_phrases():

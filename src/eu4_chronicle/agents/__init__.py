@@ -260,14 +260,14 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
             s.war_name, attackers=s.attackers, defenders=s.defenders
         )
         if s.score_known:
+            # 分数只写一次：总战分在前，tier 不再括号重复战分
             facts.append(
                 f"战争「{wlabel}」玩家总战分 {s.player_score:+.0f}，"
-                f"{tier_phrase(s.tier, score=s.player_score)}"
+                f"{tier_phrase(s.tier)}"
             )
-            if s.ticking_score is not None:
-                facts.append(f"战争目标 ticking {s.ticking_score:+.0f}")
         else:
             facts.append(f"战争「{wlabel}」仍在进行（档内未解析到玩家战分）")
+        # ticking / 目标 / 战役细节只经由 detail_bits，避免与上文 ticking 重复
         detail_bits = _war_standing_detail_bits(s, names)
         if detail_bits:
             facts.append("；".join(detail_bits))
@@ -334,10 +334,10 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
 
 
 def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
-    """战争目标 / 占领 / 战役等档内细节（有则写）。"""
+    """战争目标 / 占领 / 战役等档内细节（有则写）。ticking 至多一句。"""
     bits: list[str] = []
     if s.ticking_score is not None:
-        bits.append(f"战争目标 ticking {s.ticking_score:+.0f}（非总战分）")
+        bits.append(f"目标 ticking {s.ticking_score:+.0f}（非总战分）")
     if s.war_goal_type or s.casus_belli:
         goal = names.war_goal(s.war_goal_type) if s.war_goal_type else "未知目标"
         cb = f"（CB {names.casus_belli(s.casus_belli)}）" if s.casus_belli else ""
@@ -391,7 +391,7 @@ def _mock_war_section(
             lines.append(
                 f"- 战争「{wlabel}」：{att} vs {defe}；"
                 f"玩家总战分 {s.player_score:+.0f}——"
-                f"{tier_phrase(s.tier, score=s.player_score)}"
+                f"{tier_phrase(s.tier)}"
             )
         else:
             lines.append(f"- 战争「{wlabel}」：{att} vs {defe}；档内未解析到玩家战分")
@@ -495,23 +495,21 @@ def _mock_diplo_section(
 
 
 def _mock_ending(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
+    """短收束：只点事实，禁止「下一页…」「按…事实推进」类套话。"""
     player = _player_label(diff, names)
     wars = _wars(diff)
     vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
     primary = wars.primary
     if primary is not None and primary.score_known:
-        return (
-            f"*{player}：{tier_phrase(primary.tier, score=primary.player_score)}。"
-            f"下一页按战分与编制事实推进。*"
-        )
+        return f"*{player}：{tier_phrase(primary.tier, score=primary.player_score)}。*"
     if primary is not None:
         return f"*{player} 仍有战争进行中；档内战分未解析到，不作胜负口号。*"
     if vassals:
         labels = "、".join(names.country(t) for t in sorted(vassals)[:2])
-        return f"*{player} 已收附 {labels}。下一页看附庸稳定与下一场扩张窗口。*"
+        return f"*{player} 已收附 {labels}。*"
     if ae.warn_coalition:
-        return f"*{player} 眼前的约束主要在 AE（约 {ae.max_to:.0f}），不在虚构的前线口号。*"
-    return f"*{player} 本页档册事实如上。下一页仍以 Diff 为准。*"
+        return f"*{player} 眼前的约束主要在 AE（约 {ae.max_to:.0f}）。*"
+    return f"*{player} 本页档册事实如上。*"
 
 
 def make_brief(
@@ -539,6 +537,8 @@ def make_brief(
         "",
         "## 成稿禁词（空话）",
         "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
+        "- 禁止：「下一页…」「按…事实推进」等收束套话。",
+        "- ticking 叙事与要点各至多一句（统一「目标 ticking ±N（非总战分）」）。",
         "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技等。",
         "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
     ]

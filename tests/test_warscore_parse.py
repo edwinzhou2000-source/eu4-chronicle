@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import _mock_editor, _mock_war_section
+from eu4_chronicle.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
 from eu4_chronicle.diff import diff_states
 from eu4_chronicle.filter import filter_diff
 from eu4_chronicle.names import NameResolver
@@ -488,11 +488,16 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
 
     md = _mock_editor(readable, names, ae)
     war = _mock_war_section(readable, names, ae, heading=False)
+    narrative = _mock_narrative_paragraph(readable, names, ae)
     assert "+64" in md
     assert "优势在握" in md or "基本打赢" in md
     assert "双方胶着" not in md
     assert "胶着（战分 +17）" not in md
-    assert "ticking" in war
+    assert "目标 ticking +17（非总战分）" in war
+    assert narrative.lower().count("ticking") == 1
+    assert war.lower().count("ticking") == 1
+    assert "下一页按战分" not in md
+    assert "基本打赢（战分 +64）" not in narrative
     assert "+17" in war
     assert "夺取宣称" in war
     assert "征服" in war

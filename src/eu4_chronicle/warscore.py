@@ -192,7 +192,7 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
             )
             if s.ticking_score is not None:
                 lines.append(
-                    f"「{wlabel}」战争目标 ticking {s.ticking_score:+.0f}（非总战分，勿用其判断胶着）"
+                    f"「{wlabel}」目标 ticking {s.ticking_score:+.0f}（非总战分，勿用其判断胶着）"
                 )
         else:
             lines.append(f"「{wlabel}」档内未解析到玩家战分 → tier=unknown")
@@ -216,6 +216,10 @@ BANNED_EMPTY_PHRASES = (
     "尘埃未定",
     "刀尚未收",
     "刀尚未入鞘",
+    "下一页按战分",
+    "按战分与编制事实推进",
+    "下一页仍以 Diff 为准",
+    "下一页看附庸",
 )
 
 
