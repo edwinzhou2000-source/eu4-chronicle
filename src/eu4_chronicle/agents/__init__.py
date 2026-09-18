@@ -261,9 +261,11 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
         )
         if s.score_known:
             facts.append(
-                f"战争「{wlabel}」玩家战分 {s.player_score:+.0f}，"
+                f"战争「{wlabel}」玩家总战分 {s.player_score:+.0f}，"
                 f"{tier_phrase(s.tier, score=s.player_score)}"
             )
+            if s.ticking_score is not None:
+                facts.append(f"战争目标 ticking {s.ticking_score:+.0f}")
         else:
             facts.append(f"战争「{wlabel}」仍在进行（档内未解析到玩家战分）")
         detail_bits = _war_standing_detail_bits(s, names)
@@ -334,9 +336,11 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
 def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
     """战争目标 / 占领 / 战役等档内细节（有则写）。"""
     bits: list[str] = []
+    if s.ticking_score is not None:
+        bits.append(f"战争目标 ticking {s.ticking_score:+.0f}（非总战分）")
     if s.war_goal_type or s.casus_belli:
-        goal = s.war_goal_type or "未知目标"
-        cb = f"（CB {s.casus_belli}）" if s.casus_belli else ""
+        goal = names.war_goal(s.war_goal_type) if s.war_goal_type else "未知目标"
+        cb = f"（CB {names.casus_belli(s.casus_belli)}）" if s.casus_belli else ""
         prov = ""
         if s.war_goal_province is not None:
             prov = f"，目标省 {names.province(s.war_goal_province)}"
@@ -386,7 +390,7 @@ def _mock_war_section(
         if s.score_known:
             lines.append(
                 f"- 战争「{wlabel}」：{att} vs {defe}；"
-                f"玩家战分 {s.player_score:+.0f}——"
+                f"玩家总战分 {s.player_score:+.0f}——"
                 f"{tier_phrase(s.tier, score=s.player_score)}"
             )
         else:

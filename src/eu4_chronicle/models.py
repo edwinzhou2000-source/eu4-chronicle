@@ -58,14 +58,23 @@ class WarBattle(BaseModel):
     defender_losses: float | None = None
 
 
+# 战争目标 ticking 上限（defines.lua WARGOAL_MAX_BONUS）
+WARGOAL_TICKING_MAX = 25.0
+
+
 class WarState(BaseModel):
     name: str
     attackers: list[str] = Field(default_factory=list)
     defenders: list[str] = Field(default_factory=list)
     participants: list[WarParticipant] = Field(default_factory=list)
-    # 真档战争级战分（Osallek / Clausewitz：defender_score / attacker_score）
+    # 真档原始键（可能同存且量级不同：总战分 vs ticking）
     attacker_score: float | None = None
     defender_score: float | None = None
+    # 解析后：主展示用总战分；ticking 另存，不得当总战分
+    total_attacker_score: float | None = None
+    ticking_attacker_score: float | None = None
+    total_score_source: str | None = None
+    ticking_score_source: str | None = None
     war_goal_type: str | None = None
     casus_belli: str | None = None
     war_goal_province: int | None = None
@@ -74,21 +83,109 @@ class WarState(BaseModel):
     battles: list[WarBattle] = Field(default_factory=list)
 
     def score_for(self, tag: str) -> float | None:
-        """玩家/国家视角战争分数；优先战争级字段，其次参战国显式战分。"""
+        """玩家/国家视角**总**战争分数（非 ticking）。"""
+        total = self.total_attacker_score
+        if total is not None:
+            if tag in self.attackers:
+                return float(total)
+            if tag in self.defenders:
+                return -float(total)
+        # 兼容：未跑 resolve 时回退 Osallek 单字段语义
         if tag in self.attackers:
-            if self.defender_score is not None:
+            if self.defender_score is not None and self.attacker_score is None:
                 return -float(self.defender_score)
-            if self.attacker_score is not None:
+            if self.attacker_score is not None and self.defender_score is None:
                 return float(self.attacker_score)
         elif tag in self.defenders:
-            if self.defender_score is not None:
+            if self.defender_score is not None and self.attacker_score is None:
                 return float(self.defender_score)
-            if self.attacker_score is not None:
+            if self.attacker_score is not None and self.defender_score is None:
                 return -float(self.attacker_score)
         for p in self.participants:
             if p.tag == tag and p.warscore_known:
                 return float(p.warscore)
         return None
+
+    def ticking_for(self, tag: str) -> float | None:
+        """玩家视角战争目标 ticking；与总战分分离。"""
+        tick = self.ticking_attacker_score
+        if tick is None:
+            return None
+        if tag in self.attackers:
+            return float(tick)
+        if tag in self.defenders:
+            return -float(tick)
+        return None
+
+    def resolve_total_and_ticking(self) -> None:
+        """对照 attacker_score / defender_score / 参战国 war_score，拆出总战分与 ticking。
+
+        证据：
+        - Osallek：单字段时 defender_score/attacker_score 即总战分（互为视角）。
+        - 若两键同存且 |值| 不同，则不是同一指标的正负；|值|>25 的必为总战分
+          （ticking 上限 WARGOAL_MAX_BONUS=25），较小且 ≤25 的为 ticking。
+        - 参战国显式 war_score/warscore 可作为总战分候选（贡献度 value 除外）。
+        """
+        # 攻方视角候选：(source, attacker_pov_value)
+        cands: list[tuple[str, float]] = []
+        if self.attacker_score is not None:
+            cands.append(("attacker_score", float(self.attacker_score)))
+        if self.defender_score is not None:
+            cands.append(("defender_score", -float(self.defender_score)))
+        for p in self.participants:
+            if p.warscore_known:
+                # 参战国显式战分：攻方记正、守方记负 → 统一到攻方视角
+                if p.tag in self.attackers:
+                    cands.append((f"participants.{p.tag}.war_score", float(p.warscore)))
+                elif p.tag in self.defenders:
+                    cands.append((f"participants.{p.tag}.war_score", -float(p.warscore)))
+
+        if not cands:
+            self.total_attacker_score = None
+            self.ticking_attacker_score = None
+            self.total_score_source = None
+            self.ticking_score_source = None
+            return
+
+        # 去重：同 source 保留；同值不同 source 都留着便于对照
+        # 选总战分：优先 |v| 最大者；若并列优先 war 级 defender/attacker，再 participants
+        def total_key(item: tuple[str, float]) -> tuple:
+            src, val = item
+            prio = 0 if src in {"attacker_score", "defender_score"} else 1
+            return (-abs(val), prio, src)
+
+        total_src, total_val = sorted(cands, key=total_key)[0]
+
+        ticking_src: str | None = None
+        ticking_val: float | None = None
+        # 与总战分量级不同、且 |v|≤25 的另一战争级键 → ticking
+        war_level = [
+            (s, v)
+            for s, v in cands
+            if s in {"attacker_score", "defender_score"} and s != total_src
+        ]
+        for src, val in war_level:
+            if abs(val - total_val) < 1e-6:
+                continue
+            if abs(val) <= WARGOAL_TICKING_MAX + 1e-6:
+                # 若总战分本身也 ≤25 且来自 participants，战争级小值仍可能是低总战分的重复；
+                # 仅当总战分 |v| 明显更大时认定为 ticking。
+                if abs(total_val) > abs(val) + 1e-6:
+                    ticking_src, ticking_val = src, val
+                    break
+
+        # 若总战分来自 participants，而唯一战争级字段 |v|≤25 且更小 → 该字段为 ticking
+        if ticking_val is None and total_src.startswith("participants."):
+            for src, val in cands:
+                if src in {"attacker_score", "defender_score"} and abs(val) <= WARGOAL_TICKING_MAX + 1e-6:
+                    if abs(total_val) > abs(val) + 1e-6:
+                        ticking_src, ticking_val = src, val
+                        break
+
+        self.total_attacker_score = total_val
+        self.total_score_source = total_src
+        self.ticking_attacker_score = ticking_val
+        self.ticking_score_source = ticking_src
 
 
 class GameState(BaseModel):

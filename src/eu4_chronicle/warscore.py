@@ -23,6 +23,7 @@ class WarStanding:
     player_score: float = 0.0
     score_from: float | None = None
     score_known: bool = False
+    ticking_score: float | None = None
     tier: str = "unknown"  # decisive | advantage | contested | disadvantage | collapse | unknown
     attackers: list[str] = field(default_factory=list)
     defenders: list[str] = field(default_factory=list)
@@ -152,6 +153,11 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             standing.occupied_provinces = detail["occupied_provinces"]
         if detail.get("major_battles"):
             standing.major_battles = list(detail["major_battles"])
+        if detail.get("player_ticking_warscore") is not None:
+            try:
+                standing.ticking_score = float(detail["player_ticking_warscore"])
+            except (TypeError, ValueError):
+                pass
 
         if score is not None:
             if e.kind == "war_score_changed" and detail.get("from") is not None:
@@ -181,15 +187,20 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
         wlabel = s.war_name_zh or s.war_name
         if s.score_known:
             lines.append(
-                f"「{wlabel}」玩家战分 {s.player_score:+.0f} → tier={s.tier}："
+                f"「{wlabel}」玩家总战分 {s.player_score:+.0f} → tier={s.tier}："
                 f"{tier_phrase(s.tier, score=s.player_score)}"
             )
+            if s.ticking_score is not None:
+                lines.append(
+                    f"「{wlabel}」战争目标 ticking {s.ticking_score:+.0f}（非总战分，勿用其判断胶着）"
+                )
         else:
             lines.append(f"「{wlabel}」档内未解析到玩家战分 → tier=unknown")
     lines.append(
-        "硬性：战分显著为正（≥50）须写优势在握/基本打赢；"
-        "仅在 |战分| 较低（胶着）时才写胜负未定；禁止无战分依据的「尘埃未定」。"
-        "有具体战分时禁止写「战分未知」「不作胜负判断」。"
+        "硬性：主展示总战分；战分显著为正（≥50）须写优势在握/基本打赢；"
+        "仅在 |总战分| 较低（胶着）时才写胜负未定；禁止用 ticking 判断胶着；"
+        "禁止无战分依据的「尘埃未定」。"
+        "有具体总战分时禁止写「战分未知」「不作胜负判断」。"
     )
     return lines
 

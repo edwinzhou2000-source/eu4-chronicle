@@ -313,7 +313,7 @@ def _war_scores(w: WarState) -> dict[str, float]:
     return out
 
 
-def _war_detail_extras(w: WarState) -> dict:
+def _war_detail_extras(w: WarState, player: str = "") -> dict:
     extras: dict = {}
     if w.war_goal_type:
         extras["war_goal_type"] = w.war_goal_type
@@ -329,6 +329,14 @@ def _war_detail_extras(w: WarState) -> dict:
         extras["attacker_score"] = w.attacker_score
     if w.defender_score is not None:
         extras["defender_score"] = w.defender_score
+    if w.total_score_source:
+        extras["total_score_source"] = w.total_score_source
+    if w.ticking_score_source:
+        extras["ticking_score_source"] = w.ticking_score_source
+    if player:
+        tick = w.ticking_for(player)
+        if tick is not None:
+            extras["player_ticking_warscore"] = tick
     if w.battles:
         extras["major_battles"] = [
             {
@@ -377,7 +385,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "participants": involved,
                     "scores": scores,
                     "player_warscore": player_ws,
-                    **_war_detail_extras(w),
+                    **_war_detail_extras(w, player),
                 },
             )
         )
@@ -399,7 +407,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "participants": involved,
                     "scores": scores,
                     "player_warscore": player_ws,
-                    **_war_detail_extras(w),
+                    **_war_detail_extras(w, player),
                 },
             )
         )
@@ -442,7 +450,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                         "participants": involved,
                         "scores": b_scores,
                         "player_warscore": player_ws,
-                        **_war_detail_extras(b),
+                        **_war_detail_extras(b, player),
                     },
                 )
             )

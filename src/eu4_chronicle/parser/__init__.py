@@ -15,12 +15,13 @@ from eu4_chronicle.models import (
 )
 from eu4_chronicle.parser.clausewitz import ObjectNode, parse_clausewitz_v2
 
-# 真档战争目标块名（Osallek WarGoalType）
+# 真档战争目标块名（Osallek WarGoalType + take_claim 等别名）
 _WAR_GOAL_KEYS = (
     "take_colony",
     "take_core",
     "take_border",
     "take_province",
+    "take_claim",
     "take_capital",
     "defend_capital",
     "defend_country",
@@ -294,7 +295,7 @@ def _extract_wars(root: ObjectNode) -> list[WarState]:
       attackers={ TEU ... }
       defenders={ POL ... }
       participants={ value=.. tag="TEU" ... }  # 重复键；value 多为贡献度
-      defender_score= / attacker_score=       # 战争级战分（优先）
+      defender_score= / attacker_score=       # 战争级；同存且 |值| 不同时大者为总战分、≤25 者为 ticking
       history={ DATE={ add_attacker=... } battle={...} war_goal={...} }
 
     合成样例仍支持 active_wars={ war={ participants={ TAG={ warscore= } } } }。
@@ -335,7 +336,7 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
     battles = _parse_battles(history)
     occupied = _count_occupied_provinces(root, attackers, defenders)
 
-    return WarState(
+    state = WarState(
         name=war.get_str("name") or war.get_str("war_name") or "未命名战争",
         attackers=attackers,
         defenders=defenders,
@@ -349,6 +350,8 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
         occupied_provinces=occupied,
         battles=battles,
     )
+    state.resolve_total_and_ticking()
+    return state
 
 
 def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNode]]:

@@ -428,6 +428,8 @@ WAR_ADJECTIVE_ZH: dict[str, str] = {
 # 战争目标等地名英→中（常见波罗的海 / 东欧）
 PLACE_EN_ZH: dict[str, str] = {
     "Naklo": "纳克沃",
+    "Notec": "诺泰奇",
+    "Noteć": "诺泰奇",
     "Danzig": "但泽",
     "Königsberg": "柯尼斯堡",
     "Konigsberg": "柯尼斯堡",
@@ -440,6 +442,9 @@ PLACE_EN_ZH: dict[str, str] = {
     "Warsaw": "华沙",
     "Krakow": "克拉科夫",
     "Cracow": "克拉科夫",
+    "Poznan": "波兹南",
+    "Poznań": "波兹南",
+    "Kalisz": "卡利什",
     "Vilna": "维尔纳",
     "Wilno": "维尔纳",
     "Kiev": "基辅",
@@ -516,4 +521,43 @@ PROVINCE_ZH: dict[int, str] = {
     1773: "雅典属地",
     1858: "斯图加特",
     2296: "布尔萨",
+    254: "波兹南",
+    255: "卡利什",
+    2958: "奥斯特罗德",
+    2959: "塔尔努夫",
+    2960: "新松奇",
+    2961: "利沃夫",
+    2962: "罗夫诺",
+    2963: "诺泰奇",  # Notec
+    2964: "阿尔特马克",
+}
+
+# 战争目标 type → 中文
+WAR_GOAL_ZH: dict[str, str] = {
+    "take_claim": "夺取宣称",
+    "take_province": "夺取省份",
+    "take_core": "收复核心",
+    "take_border": "夺取边境",
+    "take_capital": "夺取首都",
+    "take_colony": "夺取殖民地",
+    "take_region": "夺取区域",
+    "defend_capital": "防守首都",
+    "defend_country": "防守国家",
+    "superiority": "展现优势",
+    "naval_superiority": "海军优势",
+    "blockade_ports": "封锁港口",
+}
+
+# CB → 中文
+CASUS_BELLI_ZH: dict[str, str] = {
+    "cb_conquest": "征服",
+    "cb_core": "收复核心",
+    "cb_independence_war": "独立战争",
+    "cb_insult": "外交侮辱",
+    "cb_trade_war": "贸易战争",
+    "cb_vassalize_mission": "附庸任务",
+    "cb_restore_personal_union": "重建联合统治",
+    "cb_change_government": "变更政府",
+    "cb_humiliate": "羞辱",
+    "cb_super_badboy": "遏制扩张",
 }

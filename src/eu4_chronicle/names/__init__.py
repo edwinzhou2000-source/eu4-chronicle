@@ -74,6 +74,20 @@ class NameResolver:
             return save_name
         return f"省份{i}"
 
+    def war_goal(self, goal_type: str | None) -> str:
+        from eu4_chronicle.names.catalog import WAR_GOAL_ZH
+
+        if not goal_type:
+            return "未知目标"
+        return WAR_GOAL_ZH.get(goal_type, goal_type)
+
+    def casus_belli(self, cb: str | None) -> str:
+        from eu4_chronicle.names.catalog import CASUS_BELLI_ZH
+
+        if not cb:
+            return "未知"
+        return CASUS_BELLI_ZH.get(cb, cb)
+
     def provinces(self, ids: list[int] | list[str] | None) -> str:
         if not ids:
             return "（无）"
