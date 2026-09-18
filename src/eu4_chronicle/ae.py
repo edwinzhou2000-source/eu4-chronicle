@@ -104,14 +104,20 @@ def assess_player_ae(
     )
 
 
-def ae_guidance_lines(ae: AeAssessment, *, player_label: str) -> list[str]:
-    """外交/战局可用的诚实 AE 文案（无恐吓套话）。"""
+def ae_guidance_lines(ae: AeAssessment, *, player_label: str, for_user: bool = True) -> list[str]:
+    """外交/战局可用的诚实 AE 文案（无恐吓套话）。
+
+    for_user=True：可进成稿正文。
+    for_user=False：可含调试旁注，仅供 brief / LLM，勿写入用户成稿。
+    """
     mech = "（机制：包围网一般需对他国对你 AE 超过 50）"
     if ae.level == "none":
-        return [
+        lines = [
             f"当前未见高 AE / 包围网风险低{mech}。",
-            f"档内无 AE 跳变，也未读到主要邻国对你的显著扩张侵略度；勿编造恐吓。",
         ]
+        if not for_user:
+            lines.append("档内无 AE 跳变或显著数值；勿编造恐吓。")
+        return lines
     if ae.level == "low":
         lines = [f"当前未见高 AE / 包围网风险低{mech}。"]
         if ae.facts:
@@ -126,7 +132,8 @@ def ae_guidance_lines(ae: AeAssessment, *, player_label: str) -> list[str]:
         ]
         if ae.facts:
             lines.append("事实：" + "；".join(ae.facts))
-        lines.append("可留意改善关系，但无需恐吓式措辞。")
+        if not for_user:
+            lines.append("可留意改善关系，但无需恐吓式措辞。")
         return lines
     if ae.level == "approaching":
         lines = [

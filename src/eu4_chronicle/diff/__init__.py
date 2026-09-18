@@ -303,8 +303,12 @@ def _diff_ae_opinion(
             )
 
 
+def _war_scores(w: WarState) -> dict[str, float]:
+    return {p.tag: float(p.warscore) for p in w.participants}
+
+
 def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[DiffEvent]:
-    """战争事件：tag 标主参战方，detail 带攻守列表；不过滤（由 filter 裁剪）。"""
+    """战争事件：tag 标主参战方，detail 带攻守列表与 warscore；不过滤（由 filter 裁剪）。"""
     events: list[DiffEvent] = []
     prev_map = {w.name: w for w in prev}
     curr_map = {w.name: w for w in curr}
@@ -312,17 +316,28 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
     for name in sorted(set(curr_map) - set(prev_map)):
         w = curr_map[name]
         involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
-        primary = player if player in involved else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else None))
+        primary = (
+            player
+            if player in involved
+            else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else None))
+        )
+        scores = _war_scores(w)
+        player_ws = scores.get(player) if player else None
+        score_bit = ""
+        if player_ws is not None:
+            score_bit = f"；玩家战分 {player_ws:.0f}"
         events.append(
             DiffEvent(
                 kind="war_started",
                 tag=primary,
-                summary=f"爆发战争「{name}」：攻方 {w.attackers} vs 守方 {w.defenders}",
+                summary=f"爆发战争「{name}」：攻方 {w.attackers} vs 守方 {w.defenders}{score_bit}",
                 detail={
                     "name": name,
                     "attackers": w.attackers,
                     "defenders": w.defenders,
                     "participants": involved,
+                    "scores": scores,
+                    "player_warscore": player_ws,
                 },
             )
         )
@@ -330,6 +345,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
         w = prev_map[name]
         involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
         primary = player if player in involved else (w.attackers[0] if w.attackers else None)
+        scores = _war_scores(w)
         events.append(
             DiffEvent(
                 kind="war_ended",
@@ -340,32 +356,46 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "attackers": w.attackers,
                     "defenders": w.defenders,
                     "participants": involved,
+                    "scores": scores,
+                    "player_warscore": scores.get(player) if player else None,
                 },
             )
         )
     for name in sorted(set(prev_map) & set(curr_map)):
         a, b = prev_map[name], curr_map[name]
-        involved = list(dict.fromkeys([*b.attackers, *b.defenders, *a.attackers, *a.defenders]))
-        a_scores = {p.tag: p.warscore for p in a.participants}
-        b_scores = {p.tag: p.warscore for p in b.participants}
-        for tag in sorted(set(a_scores) | set(b_scores)):
+        involved = list(
+            dict.fromkeys([*b.attackers, *b.defenders, *a.attackers, *a.defenders])
+        )
+        a_scores = _war_scores(a)
+        b_scores = _war_scores(b)
+        # 玩家参战：始终写入当前战分（即使跳变 <5），供叙事分档
+        tags_to_emit = set()
+        for tag in set(a_scores) | set(b_scores):
             av, bv = a_scores.get(tag, 0.0), b_scores.get(tag, 0.0)
-            if abs(bv - av) >= 5:
-                events.append(
-                    DiffEvent(
-                        kind="war_score_changed",
-                        tag=tag,
-                        summary=f"战争「{name}」中 {tag} 战争分数 {av:.0f} → {bv:.0f}",
-                        detail={
-                            "war": name,
-                            "from": av,
-                            "to": bv,
-                            "attackers": b.attackers,
-                            "defenders": b.defenders,
-                            "participants": involved,
-                        },
-                    )
+            if tag == player or abs(bv - av) >= 5:
+                tags_to_emit.add(tag)
+        if player and player in involved and player not in tags_to_emit:
+            tags_to_emit.add(player)
+        for tag in sorted(tags_to_emit):
+            av, bv = a_scores.get(tag, 0.0), b_scores.get(tag, 0.0)
+            events.append(
+                DiffEvent(
+                    kind="war_score_changed",
+                    tag=tag,
+                    summary=f"战争「{name}」中 {tag} 战争分数 {av:.0f} → {bv:.0f}",
+                    detail={
+                        "war": name,
+                        "name": name,
+                        "from": av,
+                        "to": bv,
+                        "attackers": b.attackers,
+                        "defenders": b.defenders,
+                        "participants": involved,
+                        "scores": b_scores,
+                        "player_warscore": b_scores.get(player) if player else None,
+                    },
                 )
+            )
     return events
 
 

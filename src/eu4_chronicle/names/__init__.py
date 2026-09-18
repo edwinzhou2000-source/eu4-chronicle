@@ -117,18 +117,6 @@ class NameResolver:
             summary = f"{c(tag)} 将 {c(other)} 列为宿敌"
         elif ev.kind == "rival_cleared":
             summary = f"{c(tag)} 不再视 {c(other)} 为宿敌"
-        elif ev.kind == "subject_changed":
-            if detail.get("appeared"):
-                summary = f"{c(tag)} 出现在后期档中（新生或释放）"
-            else:
-                gained = detail.get("gained") or []
-                lost = detail.get("lost") or []
-                parts = []
-                if gained:
-                    parts.append("收附 " + "、".join(c(x) for x in gained))
-                if lost:
-                    parts.append("失去附庸 " + "、".join(c(x) for x in lost))
-                summary = f"{c(tag)} 附庸变化：" + ("；".join(parts) if parts else "结构变动")
         elif ev.kind == "war_started":
             wname = self.war(
                 detail.get("name"),
@@ -139,6 +127,12 @@ class NameResolver:
             att = "、".join(c(x) for x in detail.get("attackers") or [])
             defe = "、".join(c(x) for x in detail.get("defenders") or [])
             summary = f"爆发战争「{wname}」：{att or '？'} 进攻 {defe or '？'}"
+            pws = detail.get("player_warscore")
+            if pws is not None:
+                try:
+                    summary += f"；玩家战分 {float(pws):.0f}"
+                except (TypeError, ValueError):
+                    pass
         elif ev.kind == "war_ended":
             wname = self.war(
                 detail.get("name"),
@@ -158,6 +152,22 @@ class NameResolver:
                 f"战争「{wname}」中"
                 f"{c(tag)} 战争分数 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
             )
+        elif ev.kind == "subject_changed":
+            if detail.get("appeared"):
+                summary = f"{c(tag)} 出现在后期档中（新生或释放）"
+            else:
+                gained = detail.get("gained") or []
+                lost = detail.get("lost") or []
+                parts = []
+                if gained:
+                    parts.append("收附 " + "、".join(c(x) for x in gained))
+                if lost:
+                    parts.append("失去附庸 " + "、".join(c(x) for x in lost))
+                summary = f"{c(tag)} 附庸变化：" + ("；".join(parts) if parts else "结构变动")
+                if detail.get("supersedes_alliance_break") and gained:
+                    summary = f"{c(tag)} 收附 " + "、".join(c(x) for x in gained)
+                    if lost:
+                        summary += "；失去附庸 " + "、".join(c(x) for x in lost)
         elif ev.kind == "development_changed":
             summary = f"{c(tag)} 发展度 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
         elif ev.kind == "tech_changed":

@@ -5,6 +5,61 @@ from __future__ import annotations
 from eu4_chronicle.models import DiffEvent, DiffResult, GameState
 
 
+def vassalized_tags(events: list[DiffEvent], player: str) -> set[str]:
+    """玩家在本区间新收附的 TAG 集合。"""
+    gained: set[str] = set()
+    for e in events:
+        if e.kind != "subject_changed" or e.tag != player:
+            continue
+        for tag in e.detail.get("gained") or []:
+            if tag:
+                gained.add(str(tag))
+    return gained
+
+
+def consolidate_subject_alliance(
+    events: list[DiffEvent],
+    *,
+    player: str,
+) -> list[DiffEvent]:
+    """同一对手 interval 内 alliance_broken + 收附 → 只保留收附，丢掉断盟悲剧叙事。
+
+    附庸化常伴随旧同盟消失；外交优先写「收附 X」，事件列表合并/降级断盟。
+    """
+    if not player:
+        return list(events)
+    vassals = vassalized_tags(events, player)
+    if not vassals:
+        return list(events)
+
+    out: list[DiffEvent] = []
+    for e in events:
+        if e.kind == "alliance_broken" and e.tag and e.other_tag:
+            pair = {e.tag, e.other_tag}
+            if player in pair:
+                other = e.other_tag if e.tag == player else e.tag
+                if other in vassals:
+                    continue
+        if e.kind == "subject_changed" and e.tag == player:
+            gained = list(e.detail.get("gained") or [])
+            if gained:
+                detail = dict(e.detail)
+                detail["supersedes_alliance_break"] = [
+                    g for g in gained if g in vassals
+                ]
+                # 摘要强调收附，避免「附庸结构改组」空话
+                gained_s = "、".join(gained)
+                lost = list(detail.get("lost") or [])
+                if lost:
+                    summary = f"{player} 收附 {gained_s}（并调整附庸：失去 {lost}）"
+                else:
+                    summary = f"{player} 收附 {gained_s}"
+                out.append(e.model_copy(update={"summary": summary, "detail": detail}))
+                continue
+        out.append(e)
+    return out
+
+
 def player_sphere(prev: GameState, curr: GameState, player: str) -> set[str]:
     """玩家 + 盟国/宿敌/附庸 + AE/好感对象 + 玩家参战对手。"""
     sphere: set[str] = {player} if player else set()
@@ -89,6 +144,8 @@ def filter_diff(
         sphere=sphere,
         include_global=include_global,
     )
+    if player:
+        filtered = consolidate_subject_alliance(filtered, player=player)
     return diff.model_copy(
         update={
             "events": filtered,

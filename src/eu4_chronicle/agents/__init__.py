@@ -1,4 +1,7 @@
-"""史官 / 军师 / 外交官 / 主编：真模型 + 强化 mock 成稿。"""
+"""史官 / 军师 / 外交官 / 主编：真模型 + 强化 mock 成稿。
+
+成稿硬性：只陈述 Diff 有数据支撑的事实；禁止补给线/粮草/尘埃未定等空话。
+"""
 
 from __future__ import annotations
 
@@ -7,8 +10,15 @@ from eu4_chronicle.agents import prompts
 from eu4_chronicle.agents.llm import chat_completion
 from eu4_chronicle.config import Settings
 from eu4_chronicle.diff import events_to_brief
+from eu4_chronicle.filter import vassalized_tags
 from eu4_chronicle.models import AgentSection, DiffResult
 from eu4_chronicle.names import NameResolver, default_resolver
+from eu4_chronicle.warscore import (
+    WarAssessment,
+    assess_player_wars,
+    tier_phrase,
+    war_guidance_lines,
+)
 
 
 async def run_historian(
@@ -126,6 +136,10 @@ def _player_label(diff: DiffResult, names: NameResolver) -> str:
     return names.country(diff.player) if diff.player else "未知势力"
 
 
+def _wars(diff: DiffResult) -> WarAssessment:
+    return assess_player_wars(diff)
+
+
 def _mock_role(role: str, diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     """三角色 mock：供 verbose/调试；主编成稿不粘贴这些原文。"""
     if role == "historian":
@@ -138,7 +152,7 @@ def _mock_role(role: str, diff: DiffResult, names: NameResolver, ae: AeAssessmen
 
 
 def _mock_editor(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
-    """社区可分享成稿：标题钩子 + 跨度 + 叙事 + 战局 + 外交 + 短结尾；不粘贴三角色原文。"""
+    """社区可分享成稿：标题钩子 + 跨度 + 叙事 + 战局 + 外交 + 短结尾。"""
     player = _player_label(diff, names)
     span = f"{diff.prev_date or '?'} → {diff.curr_date or '?'}"
     hook = _title_hook(diff, names, ae)
@@ -159,18 +173,41 @@ def _mock_editor(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str
 
 def _title_hook(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     player = _player_label(diff, names)
+    wars = _wars(diff)
+    primary = wars.primary
+    vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
     kinds = {e.kind for e in diff.events}
-    if "war_started" in kinds or "war_score_changed" in kinds:
-        return f"{player}烽烟录：分数未定，刀尚未收"
+
+    if primary is not None:
+        wlabel = primary.war_name_zh or names.war(
+            primary.war_name,
+            attackers=primary.attackers,
+            defenders=primary.defenders,
+        )
+        if primary.tier == "decisive":
+            return f"{player}战报：{wlabel}，优势在握（战分 {primary.player_score:.0f}）"
+        if primary.tier == "advantage":
+            return f"{player}战报：{wlabel}，战局偏我（战分 {primary.player_score:.0f}）"
+        if primary.tier == "contested":
+            return f"{player}战报：{wlabel}，双方胶着（战分 {primary.player_score:.0f}）"
+        if primary.tier == "disadvantage":
+            return f"{player}战报：{wlabel}，战分落后（战分 {primary.player_score:.0f}）"
+        if primary.tier == "collapse":
+            return f"{player}战报：{wlabel}，局势危急（战分 {primary.player_score:.0f}）"
+        return f"{player}战报：{wlabel}"
+
+    if vassals:
+        labels = "、".join(names.country(t) for t in sorted(vassals)[:2])
+        return f"{player}外交录：收附 {labels}"
     if "province_gained" in kinds:
         return f"{player}开疆记：新土入册"
     if ae.warn_coalition:
-        return f"{player}外交折冲：AE 逼近红线，邻国侧目"
+        return f"{player}外交折冲：AE 逼近红线"
     if "alliance_broken" in kinds:
-        return f"{player}外交折冲：盟约松动"
+        return f"{player}外交折冲：同盟调整"
     if "province_lost" in kinds:
-        return f"{player}失土志：版图回缩之后"
-    return f"{player}国运切片：两档之间的平静与暗流"
+        return f"{player}失土志：版图回缩"
+    return f"{player}国运切片：{diff.prev_date or '?'} → {diff.curr_date or '?'}"
 
 
 def _war_display_name(e, names: NameResolver) -> str:
@@ -184,50 +221,30 @@ def _war_display_name(e, names: NameResolver) -> str:
     )
 
 
+def _fmt_num_change(e, *, key_from: str = "from", key_to: str = "to", digits: int = 1) -> str:
+    fr = e.detail.get(key_from, 0)
+    to = e.detail.get(key_to, 0)
+    try:
+        return f"{float(fr):.{digits}f}→{float(to):.{digits}f}"
+    except (TypeError, ValueError):
+        return f"{fr}→{to}"
+
+
 def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
+    """只拼 Diff 事实句：人力/海军/战争/同盟附庸/科技等。"""
     player = _player_label(diff, names)
     span = f"{diff.prev_date or '?'} → {diff.curr_date or '?'}"
-    parts: list[str] = [f"自 {span}，{player} 的国书上落下如下记录。"]
+    parts: list[str] = [f"{span}，{player}："]
+    facts: list[str] = []
 
     gained = [e for e in diff.events if e.kind == "province_gained" and e.tag == diff.player]
     lost = [e for e in diff.events if e.kind == "province_lost" and e.tag == diff.player]
-    wars = [e for e in diff.events if e.kind in {"war_started", "war_ended", "war_score_changed"}]
-    diplo = [
-        e
-        for e in diff.events
-        if e.kind
-        in {
-            "alliance_formed",
-            "alliance_broken",
-            "rival_set",
-            "rival_cleared",
-            "subject_changed",
-            "ae_changed",
-        }
-    ]
-    internal = [
-        e
-        for e in diff.events
-        if e.kind
-        in {
-            "development_changed",
-            "tech_changed",
-            "monarch_changed",
-            "stability_changed",
-            "manpower_changed",
-            "army_changed",
-        }
-        and e.tag == diff.player
-    ]
-
     if gained:
-        provinces = []
+        provinces: list = []
         for e in gained:
             provinces.extend(e.detail.get("provinces") or [])
-        parts.append(
-            f"兵锋所至，{player} 将 {names.provinces(provinces)} 纳入版图，"
-            f"边民改换旗号，税册随之改写。"
-        )
+        if provinces:
+            facts.append(f"取得 {names.provinces(provinces)}")
     if lost:
         provinces = []
         for e in lost:
@@ -235,79 +252,79 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
                 continue
             provinces.extend(e.detail.get("provinces") or [])
         if provinces:
-            parts.append(f"与此同时，{names.provinces(provinces)} 易手，朝堂不得不吞下失土的苦果。")
+            facts.append(f"失去 {names.provinces(provinces)}")
 
-    if wars:
-        war_names = []
-        for e in wars:
-            n = _war_display_name(e, names)
-            if n and n not in war_names:
-                war_names.append(n)
-        if war_names:
-            focus = "、".join(f"「{n}」" for n in war_names[:3])
-            parts.append(f"战场上，{focus} 牵动军情；胜负尚在尘埃未定之际，粮草与编制已先见涨落。")
-        else:
-            parts.append("边境仍有刀兵声响，将帅按战争分数与补给进退。")
-    elif not gained and not lost:
-        parts.append("本段未见开疆或崩盘式吞并，岁月多半耗在宫廷、税吏与边境巡弋之间。")
-
-    if diplo:
-        ally_break = [e for e in diplo if e.kind == "alliance_broken"]
-        ally_form = [e for e in diplo if e.kind == "alliance_formed"]
-        subs = [e for e in diplo if e.kind == "subject_changed" and e.tag == diff.player]
-        bits = []
-        if ally_break:
-            others = []
-            seen_pair: set[frozenset] = set()
-            for e in ally_break:
-                key = frozenset({e.tag, e.other_tag})
-                if key in seen_pair:
-                    continue
-                seen_pair.add(key)
-                other = e.other_tag if e.tag == diff.player else e.tag
-                if other and other != diff.player:
-                    others.append(names.country(other))
-            if others:
-                bits.append(f"与 {'、'.join(others[:2])} 的盟约撕裂")
-        if ally_form:
-            others = []
-            seen_pair = set()
-            for e in ally_form:
-                key = frozenset({e.tag, e.other_tag})
-                if key in seen_pair:
-                    continue
-                seen_pair.add(key)
-                other = e.other_tag if e.tag == diff.player else e.tag
-                if other and other != diff.player:
-                    others.append(names.country(other))
-            if others:
-                bits.append(f"新结 {'、'.join(others[:2])}")
-        if subs:
-            bits.append("附庸结构改组")
-        if ae.level in {"rising", "approaching", "high"}:
-            bits.append(f"扩张侵略度有动（峰值约 {ae.max_to:.0f}）")
-        if bits:
-            parts.append("外交席上，" + "，".join(bits) + "——这些比捷报更决定下一场战争能否独力承担。")
-
-    if internal:
-        tech = [e for e in internal if e.kind == "tech_changed"]
-        stab = [e for e in internal if e.kind == "stability_changed"]
-        man = [e for e in internal if e.kind == "manpower_changed"]
-        if tech:
-            parts.append("学问馆传来捷报：新的科技阶梯已踏出半步，军阵与行政或可因此改观。")
-        if stab:
-            e = stab[0]
-            direction = "下滑" if (e.detail.get("to", 0) < e.detail.get("from", 0)) else "回升"
-            parts.append(f"国内稳定度{direction}，敕令与叛乱风险须一并写入下一季的算计。")
-        if man and not wars:
-            parts.append("兵员名册有所消长，休养生息与征召令之间，君主仍需权衡。")
-
-    if len(parts) == 1:
-        parts.append(
-            f"档册安静得近乎可疑：{player} 既未在远方战争中留名，也未于邻境掀起巨浪。"
-            f"史官只能记下——和平亦是一种需要经营的战果。"
+    wars = _wars(diff)
+    for s in wars.standings:
+        wlabel = s.war_name_zh or names.war(
+            s.war_name, attackers=s.attackers, defenders=s.defenders
         )
+        if s.score_known:
+            facts.append(
+                f"战争「{wlabel}」玩家战分 {s.player_score:.0f}，"
+                f"{tier_phrase(s.tier, score=s.player_score)}"
+            )
+        else:
+            facts.append(f"战争「{wlabel}」仍在进行（档内未解析到玩家战分）")
 
+    # 外交：收附优先；断盟仅当未同时收附
+    vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
+    if vassals:
+        facts.append("收附 " + "、".join(names.country(t) for t in sorted(vassals)))
+    ally_form: list[str] = []
+    ally_break: list[str] = []
+    seen_form: set[frozenset] = set()
+    seen_break: set[frozenset] = set()
+    for e in diff.events:
+        if e.kind == "alliance_formed" and e.tag and e.other_tag:
+            key = frozenset({e.tag, e.other_tag})
+            if key in seen_form:
+                continue
+            seen_form.add(key)
+            other = e.other_tag if e.tag == diff.player else e.tag
+            if other and other != diff.player and other not in vassals:
+                ally_form.append(names.country(other))
+        if e.kind == "alliance_broken" and e.tag and e.other_tag:
+            key = frozenset({e.tag, e.other_tag})
+            if key in seen_break:
+                continue
+            seen_break.add(key)
+            other = e.other_tag if e.tag == diff.player else e.tag
+            if other and other != diff.player and other not in vassals:
+                ally_break.append(names.country(other))
+    if ally_form:
+        facts.append("新结盟 " + "、".join(ally_form[:3]))
+    if ally_break:
+        facts.append("同盟破裂：" + "、".join(ally_break[:3]))
+
+    for e in diff.events:
+        if e.tag != diff.player:
+            continue
+        if e.kind == "manpower_changed":
+            facts.append(
+                f"人力 {_fmt_num_change(e)}（上限 "
+                f"{_fmt_num_change(e, key_from='max_from', key_to='max_to')}）"
+            )
+        elif e.kind == "navy_changed":
+            facts.append(f"海军约 {_fmt_num_change(e, digits=0)}")
+        elif e.kind == "army_changed":
+            facts.append(f"陆军约 {_fmt_num_change(e, digits=0)}")
+        elif e.kind == "tech_changed":
+            labels = {"adm_tech": "行政科技", "dip_tech": "外交科技", "mil_tech": "军事科技"}
+            tech = labels.get(str(e.detail.get("tech")), str(e.detail.get("tech")))
+            facts.append(f"{tech} {e.detail.get('from')}→{e.detail.get('to')}")
+        elif e.kind == "stability_changed":
+            facts.append(f"稳定度 {e.detail.get('from')}→{e.detail.get('to')}")
+        elif e.kind == "development_changed":
+            facts.append(f"发展度 {_fmt_num_change(e, digits=0)}")
+
+    if ae.has_change and ae.facts:
+        facts.append("AE：" + "；".join(ae.facts[:2]))
+
+    if not facts:
+        parts.append("本区间未见可稽的疆域、战争、外交或编制跳变。")
+    else:
+        parts.append("；".join(facts) + "。")
     return "".join(parts)
 
 
@@ -315,7 +332,7 @@ def _mock_war_section(
     diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
 ) -> str:
     player = _player_label(diff, names)
-    wars = [e for e in diff.events if e.kind.startswith("war_")]
+    wars = _wars(diff)
     army = [
         e
         for e in diff.events
@@ -323,30 +340,44 @@ def _mock_war_section(
         and e.tag == diff.player
     ]
     lines: list[str] = []
-    if not wars and not army:
-        text = (
-            f"{player} 本区间未卷入可稽的大战。建议维持边境驻军与人力恢复，"
-            f"并核对军事科技是否落后于宿敌与邻国。"
-        )
+    if not wars.standings and not army:
+        text = f"{player} 本区间未卷入可稽的大战，也无编制/人力跳变记录。"
         return f"### 战局要点\n{text}" if heading else text
 
-    for e in wars[:6]:
-        lines.append(f"- {e.summary}")
-    for e in army[:4]:
-        lines.append(f"- {e.summary}")
-    if wars:
-        if ae.warn_coalition:
+    for s in wars.standings:
+        wlabel = s.war_name_zh or names.war(
+            s.war_name, attackers=s.attackers, defenders=s.defenders
+        )
+        att = "、".join(names.country(x) for x in s.attackers) or "？"
+        defe = "、".join(names.country(x) for x in s.defenders) or "？"
+        if s.score_known:
             lines.append(
-                f"- **研判**：以 {player} 为轴，先打通补给与占领线；"
-                f"当前 AE 偏高（约 {ae.max_to:.0f}），忌另开第二战场。"
+                f"- 战争「{wlabel}」：{att} vs {defe}；"
+                f"玩家战分 {s.player_score:.0f}——{tier_phrase(s.tier, score=s.player_score)}"
             )
         else:
-            lines.append(
-                f"- **研判**：以 {player} 为轴，先打通补给与占领线，把这一仗的分数打实；"
-                f"当前未见高 AE / 包围网风险低。"
-            )
-    else:
-        lines.append(f"- **研判**：无热战不等于无威胁；盯紧宿敌编制与己方人力曲线是否同向。")
+            lines.append(f"- 战争「{wlabel}」：{att} vs {defe}；档内未解析到玩家战分")
+    for e in army[:6]:
+        lines.append(f"- {e.summary}")
+
+    if wars.standings:
+        primary = wars.primary
+        assert primary is not None
+        if primary.tier == "decisive":
+            judge = f"战分 {primary.player_score:.0f}，优势在握，可推进和约或巩固占领。"
+        elif primary.tier == "advantage":
+            judge = f"战分 {primary.player_score:.0f}，战局偏我，继续扩大占领优势。"
+        elif primary.tier == "contested":
+            judge = f"战分 {primary.player_score:.0f}，双方胶着，胜负未定。"
+        elif primary.tier == "disadvantage":
+            judge = f"战分 {primary.player_score:.0f}，战分落后，宜收缩战线或求和。"
+        elif primary.tier == "collapse":
+            judge = f"战分 {primary.player_score:.0f}，局势危急。"
+        else:
+            judge = "战分未知，仅列参战方与编制事实，不作胜负判断。"
+        if ae.warn_coalition:
+            judge += f" 当前 AE 偏高（约 {ae.max_to:.0f}），忌另开第二战场。"
+        lines.append(f"- **研判**：{judge}")
     body = "\n".join(lines)
     return f"### 战局要点\n{body}" if heading else body
 
@@ -355,6 +386,7 @@ def _mock_diplo_section(
     diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
 ) -> str:
     player = _player_label(diff, names)
+    vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
     diplo = [
         e
         for e in diff.events
@@ -369,7 +401,8 @@ def _mock_diplo_section(
             "subject_changed",
         }
     ]
-    guidance = ae_guidance_lines(ae, player_label=player)
+    # 用户成稿：不含调试旁注
+    guidance = ae_guidance_lines(ae, player_label=player, for_user=True)
     if not diplo:
         text = (
             f"{player} 外交结构相对平稳。"
@@ -378,28 +411,67 @@ def _mock_diplo_section(
         )
         return f"### 外交纪要\n{text}" if heading else text
 
-    lines = [f"- {e.summary}" for e in diplo[:8]]
+    lines: list[str] = []
+    # 收附优先展示
+    for e in diplo:
+        if e.kind == "subject_changed" and e.tag == diff.player:
+            gained = e.detail.get("gained") or []
+            if gained:
+                lines.append(
+                    f"- 收附 {'、'.join(names.country(x) for x in gained)}"
+                    + (
+                        f"；失去附庸 {'、'.join(names.country(x) for x in (e.detail.get('lost') or []))}"
+                        if e.detail.get("lost")
+                        else ""
+                    )
+                )
+            else:
+                lines.append(f"- {e.summary}")
+        elif e.kind == "alliance_broken":
+            other = e.other_tag if e.tag == diff.player else e.tag
+            if other in vassals:
+                continue
+            lines.append(f"- {e.summary}")
+        elif e.kind == "alliance_formed":
+            lines.append(f"- {e.summary}")
+        elif e.kind not in {"subject_changed"}:
+            lines.append(f"- {e.summary}")
+
+    lines = lines[:10]
     lines.append("- **AE**：" + guidance[0])
     for extra in guidance[1:]:
         lines.append(f"- {extra}")
-    if ae.warn_coalition:
-        lines.append("- **优先**：修复关键断盟，改善关系以缓冲联军，附庸需算独立倾向。")
+    if vassals:
+        lines.append(
+            "- **优先**：巩固对新附庸的控制与外交容量；"
+            + ("高 AE 窗口暂缓再扩张。" if ae.warn_coalition else "维护新同盟与宿敌平衡。")
+        )
+    elif ae.warn_coalition:
+        lines.append("- **优先**：修复关键断盟，改善关系以缓冲联军。")
     else:
-        lines.append("- **优先**：维护关键同盟与宿敌平衡；附庸需算独立倾向。")
+        lines.append("- **优先**：维护关键同盟与宿敌平衡。")
     body = "\n".join(lines)
     return f"### 外交纪要\n{body}" if heading else body
 
 
 def _mock_ending(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     player = _player_label(diff, names)
-    kinds = {e.kind for e in diff.events}
-    if "war_started" in kinds or "war_score_changed" in kinds:
-        return f"*{player} 的刀尚未入鞘。先把这一仗的分数打实，再谈下一场国运。*"
+    wars = _wars(diff)
+    vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
+    primary = wars.primary
+    if primary is not None and primary.score_known:
+        return (
+            f"*{player}：{tier_phrase(primary.tier, score=primary.player_score)}。"
+            f"下一页按战分与编制事实推进。*"
+        )
+    if primary is not None:
+        return f"*{player} 仍有战争进行中；档内战分未解析到，不作胜负口号。*"
+    if vassals:
+        labels = "、".join(names.country(t) for t in sorted(vassals)[:2])
+        return f"*{player} 已收附 {labels}。下一页看附庸稳定与下一场扩张窗口。*"
     if ae.warn_coalition:
-        return f"*{player} 眼前的对手，往往不在前线，而在外交席未写完的那一行。*"
-    if "alliance_broken" in kinds:
-        return f"*{player} 盟约有裂痕。下一页是修补，还是另寻奥援——君主自知。*"
-    return f"*{player} 这一页档册已合上。下一页，是休养生息，还是再度出征——君主自知。*"
+        return f"*{player} 眼前的约束主要在 AE（约 {ae.max_to:.0f}），不在虚构的前线口号。*"
+    return f"*{player} 本页档册事实如上。下一页仍以 Diff 为准。*"
 
 
 def make_brief(
@@ -410,14 +482,24 @@ def make_brief(
 ) -> str:
     names = names or default_resolver()
     ae = ae or assess_player_ae(diff, country_label=names.country)
+    wars = assess_player_wars(diff)
     base = events_to_brief(diff)
     player = names.country(diff.player) if diff.player else "玩家"
-    guide = ae_guidance_lines(ae, player_label=player)
+    guide = ae_guidance_lines(ae, player_label=player, for_user=False)
+    war_lines = war_guidance_lines(wars, country_label=names.country)
     block = [
         "",
-        "## AE 态势（供外交官/主编遵守，禁止编造恐吓）",
+        "## AE 态势（供外交官/主编遵守，禁止编造恐吓；调试旁注勿写入成稿正文）",
         f"level={ae.level} max_to={ae.max_to:.0f} has_change={ae.has_change} warn_coalition={ae.warn_coalition}",
         *[f"- {g}" for g in guide],
         "- 硬性：包围网一般需对你 AE 超过 50；AE=0 或无跳变时必须写「当前未见高 AE / 包围网风险低」。",
+        "",
+        "## 战争分数态势（供军师/史官/主编遵守）",
+        *[f"- {g}" for g in war_lines],
+        "",
+        "## 成稿禁词（空话）",
+        "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
+        "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技等。",
+        "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
     ]
     return base + "\n".join(block)
