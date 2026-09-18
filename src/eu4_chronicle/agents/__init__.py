@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from eu4_chronicle.ae import AeAssessment, ae_guidance_lines, assess_player_ae
 from eu4_chronicle.agents import prompts
 from eu4_chronicle.agents.llm import chat_completion
 from eu4_chronicle.config import Settings
@@ -16,9 +17,17 @@ async def run_historian(
     brief: str,
     *,
     names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
 ) -> AgentSection:
     return await _run_role(
-        settings, "historian", "史官 · 编年叙事", prompts.HISTORIAN_SYSTEM, brief, diff, names
+        settings,
+        "historian",
+        "史官 · 编年叙事",
+        prompts.HISTORIAN_SYSTEM,
+        brief,
+        diff,
+        names,
+        ae,
     )
 
 
@@ -28,9 +37,17 @@ async def run_strategist(
     brief: str,
     *,
     names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
 ) -> AgentSection:
     return await _run_role(
-        settings, "strategist", "军师 · 战局研判", prompts.STRATEGIST_SYSTEM, brief, diff, names
+        settings,
+        "strategist",
+        "军师 · 战局研判",
+        prompts.STRATEGIST_SYSTEM,
+        brief,
+        diff,
+        names,
+        ae,
     )
 
 
@@ -40,9 +57,17 @@ async def run_diplomat(
     brief: str,
     *,
     names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
 ) -> AgentSection:
     return await _run_role(
-        settings, "diplomat", "外交官 · 外交与 AE", prompts.DIPLOMAT_SYSTEM, brief, diff, names
+        settings,
+        "diplomat",
+        "外交官 · 外交与 AE",
+        prompts.DIPLOMAT_SYSTEM,
+        brief,
+        diff,
+        names,
+        ae,
     )
 
 
@@ -55,11 +80,13 @@ async def run_editor(
     diplomat: AgentSection,
     *,
     names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
 ) -> AgentSection:
     names = names or default_resolver()
+    ae = ae or assess_player_ae(diff, country_label=names.country)
     mode = settings.resolved_mode()
     if mode == "mock":
-        content = _mock_editor(diff, names)
+        content = _mock_editor(diff, names, ae)
         return AgentSection(role="editor", title="主编 · 合成战报", content=content, mock=True)
 
     text = await chat_completion(
@@ -78,11 +105,13 @@ async def _run_role(
     brief: str,
     diff: DiffResult,
     names: NameResolver | None,
+    ae: AeAssessment | None,
 ) -> AgentSection:
     names = names or default_resolver()
+    ae = ae or assess_player_ae(diff, country_label=names.country)
     mode = settings.resolved_mode()
     if mode == "mock":
-        content = _mock_role(role, diff, names)
+        content = _mock_role(role, diff, names, ae)
         return AgentSection(role=role, title=title, content=content, mock=True)  # type: ignore[arg-type]
 
     text = await chat_completion(
@@ -97,26 +126,26 @@ def _player_label(diff: DiffResult, names: NameResolver) -> str:
     return names.country(diff.player) if diff.player else "未知势力"
 
 
-def _mock_role(role: str, diff: DiffResult, names: NameResolver) -> str:
+def _mock_role(role: str, diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     """三角色 mock：供 verbose/调试；主编成稿不粘贴这些原文。"""
     if role == "historian":
-        return _mock_narrative_paragraph(diff, names)
+        return _mock_narrative_paragraph(diff, names, ae)
 
     if role == "strategist":
-        return _mock_war_section(diff, names, heading=False)
+        return _mock_war_section(diff, names, ae, heading=False)
 
-    return _mock_diplo_section(diff, names, heading=False)
+    return _mock_diplo_section(diff, names, ae, heading=False)
 
 
-def _mock_editor(diff: DiffResult, names: NameResolver) -> str:
+def _mock_editor(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     """社区可分享成稿：标题钩子 + 跨度 + 叙事 + 战局 + 外交 + 短结尾；不粘贴三角色原文。"""
     player = _player_label(diff, names)
     span = f"{diff.prev_date or '?'} → {diff.curr_date or '?'}"
-    hook = _title_hook(diff, names)
-    narrative = _mock_narrative_paragraph(diff, names)
-    war = _mock_war_section(diff, names, heading=False)
-    diplo = _mock_diplo_section(diff, names, heading=False)
-    ending = _mock_ending(diff, names)
+    hook = _title_hook(diff, names, ae)
+    narrative = _mock_narrative_paragraph(diff, names, ae)
+    war = _mock_war_section(diff, names, ae, heading=False)
+    diplo = _mock_diplo_section(diff, names, ae, heading=False)
+    ending = _mock_ending(diff, names, ae)
 
     return (
         f"# {hook}\n\n"
@@ -128,21 +157,34 @@ def _mock_editor(diff: DiffResult, names: NameResolver) -> str:
     )
 
 
-def _title_hook(diff: DiffResult, names: NameResolver) -> str:
+def _title_hook(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     player = _player_label(diff, names)
     kinds = {e.kind for e in diff.events}
     if "war_started" in kinds or "war_score_changed" in kinds:
         return f"{player}烽烟录：分数未定，刀尚未收"
     if "province_gained" in kinds:
         return f"{player}开疆记：新土入册"
-    if "alliance_broken" in kinds or "ae_changed" in kinds:
-        return f"{player}外交折冲：盟约松动，邻国侧目"
+    if ae.warn_coalition:
+        return f"{player}外交折冲：AE 逼近红线，邻国侧目"
+    if "alliance_broken" in kinds:
+        return f"{player}外交折冲：盟约松动"
     if "province_lost" in kinds:
         return f"{player}失土志：版图回缩之后"
     return f"{player}国运切片：两档之间的平静与暗流"
 
 
-def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver) -> str:
+def _war_display_name(e, names: NameResolver) -> str:
+    detail = e.detail or {}
+    if detail.get("name_zh"):
+        return str(detail["name_zh"])
+    return names.war(
+        detail.get("name") or detail.get("war"),
+        attackers=detail.get("attackers"),
+        defenders=detail.get("defenders"),
+    )
+
+
+def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     player = _player_label(diff, names)
     span = f"{diff.prev_date or '?'} → {diff.curr_date or '?'}"
     parts: list[str] = [f"自 {span}，{player} 的国书上落下如下记录。"]
@@ -198,7 +240,7 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver) -> str:
     if wars:
         war_names = []
         for e in wars:
-            n = e.detail.get("name") or e.detail.get("war")
+            n = _war_display_name(e, names)
             if n and n not in war_names:
                 war_names.append(n)
         if war_names:
@@ -212,7 +254,6 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver) -> str:
     if diplo:
         ally_break = [e for e in diplo if e.kind == "alliance_broken"]
         ally_form = [e for e in diplo if e.kind == "alliance_formed"]
-        ae = [e for e in diplo if e.kind == "ae_changed"]
         subs = [e for e in diplo if e.kind == "subject_changed" and e.tag == diff.player]
         bits = []
         if ally_break:
@@ -243,8 +284,8 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver) -> str:
                 bits.append(f"新结 {'、'.join(others[:2])}")
         if subs:
             bits.append("附庸结构改组")
-        if ae:
-            bits.append("扩张侵略度攀升，列强开始侧目")
+        if ae.level in {"rising", "approaching", "high"}:
+            bits.append(f"扩张侵略度有动（峰值约 {ae.max_to:.0f}）")
         if bits:
             parts.append("外交席上，" + "，".join(bits) + "——这些比捷报更决定下一场战争能否独力承担。")
 
@@ -270,7 +311,9 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver) -> str:
     return "".join(parts)
 
 
-def _mock_war_section(diff: DiffResult, names: NameResolver, *, heading: bool) -> str:
+def _mock_war_section(
+    diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
+) -> str:
     player = _player_label(diff, names)
     wars = [e for e in diff.events if e.kind.startswith("war_")]
     army = [
@@ -292,16 +335,25 @@ def _mock_war_section(diff: DiffResult, names: NameResolver, *, heading: bool) -
     for e in army[:4]:
         lines.append(f"- {e.summary}")
     if wars:
-        lines.append(
-            f"- **研判**：以 {player} 为轴，先打通补给与占领线，忌在 AE 高企时另开第二战场。"
-        )
+        if ae.warn_coalition:
+            lines.append(
+                f"- **研判**：以 {player} 为轴，先打通补给与占领线；"
+                f"当前 AE 偏高（约 {ae.max_to:.0f}），忌另开第二战场。"
+            )
+        else:
+            lines.append(
+                f"- **研判**：以 {player} 为轴，先打通补给与占领线，把这一仗的分数打实；"
+                f"当前未见高 AE / 包围网风险低。"
+            )
     else:
         lines.append(f"- **研判**：无热战不等于无威胁；盯紧宿敌编制与己方人力曲线是否同向。")
     body = "\n".join(lines)
     return f"### 战局要点\n{body}" if heading else body
 
 
-def _mock_diplo_section(diff: DiffResult, names: NameResolver, *, heading: bool) -> str:
+def _mock_diplo_section(
+    diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
+) -> str:
     player = _player_label(diff, names)
     diplo = [
         e
@@ -317,33 +369,55 @@ def _mock_diplo_section(diff: DiffResult, names: NameResolver, *, heading: bool)
             "subject_changed",
         }
     ]
+    guidance = ae_guidance_lines(ae, player_label=player)
     if not diplo:
         text = (
-            f"{player} 外交结构相对平稳。仍建议巡视宿敌与大国对你的扩张侵略度；"
-            f"宣战不会立刻结算 AE，割地与苛刻和约才会。"
+            f"{player} 外交结构相对平稳。"
+            + "".join(guidance)
+            + "宣战本身不会立刻结算 AE，割地与苛刻和约才会。"
         )
         return f"### 外交纪要\n{text}" if heading else text
 
     lines = [f"- {e.summary}" for e in diplo[:8]]
-    has_ae = any(e.kind == "ae_changed" for e in diplo)
-    if has_ae:
-        lines.append("- **AE**：扩张侵略度已动，评估防御同盟与改善关系窗口。")
+    lines.append("- **AE**：" + guidance[0])
+    for extra in guidance[1:]:
+        lines.append(f"- {extra}")
+    if ae.warn_coalition:
+        lines.append("- **优先**：修复关键断盟，改善关系以缓冲联军，附庸需算独立倾向。")
     else:
-        lines.append("- **AE**：未见显著跳变，但勿在下一次割地时掉以轻心。")
-    lines.append("- **优先**：修复关键断盟，用改善关系对冲高 AE，附庸需算独立倾向。")
+        lines.append("- **优先**：维护关键同盟与宿敌平衡；附庸需算独立倾向。")
     body = "\n".join(lines)
     return f"### 外交纪要\n{body}" if heading else body
 
 
-def _mock_ending(diff: DiffResult, names: NameResolver) -> str:
+def _mock_ending(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
     player = _player_label(diff, names)
     kinds = {e.kind for e in diff.events}
     if "war_started" in kinds or "war_score_changed" in kinds:
         return f"*{player} 的刀尚未入鞘。先把这一仗的分数打实，再谈下一场国运。*"
-    if "ae_changed" in kinds or "alliance_broken" in kinds:
+    if ae.warn_coalition:
         return f"*{player} 眼前的对手，往往不在前线，而在外交席未写完的那一行。*"
+    if "alliance_broken" in kinds:
+        return f"*{player} 盟约有裂痕。下一页是修补，还是另寻奥援——君主自知。*"
     return f"*{player} 这一页档册已合上。下一页，是休养生息，还是再度出征——君主自知。*"
 
 
-def make_brief(diff: DiffResult) -> str:
-    return events_to_brief(diff)
+def make_brief(
+    diff: DiffResult,
+    *,
+    names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
+) -> str:
+    names = names or default_resolver()
+    ae = ae or assess_player_ae(diff, country_label=names.country)
+    base = events_to_brief(diff)
+    player = names.country(diff.player) if diff.player else "玩家"
+    guide = ae_guidance_lines(ae, player_label=player)
+    block = [
+        "",
+        "## AE 态势（供外交官/主编遵守，禁止编造恐吓）",
+        f"level={ae.level} max_to={ae.max_to:.0f} has_change={ae.has_change} warn_coalition={ae.warn_coalition}",
+        *[f"- {g}" for g in guide],
+        "- 硬性：包围网一般需对你 AE 超过 50；AE=0 或无跳变时必须写「当前未见高 AE / 包围网风险低」。",
+    ]
+    return base + "\n".join(block)

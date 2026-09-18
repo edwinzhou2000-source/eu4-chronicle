@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from eu4_chronicle.models import DiffEvent, DiffResult, GameState
 from eu4_chronicle.names.catalog import COUNTRY_ZH, PROVINCE_ZH
+from eu4_chronicle.names.wars import translate_war_name
 
 
 class NameResolver:
@@ -62,6 +63,14 @@ class NameResolver:
             return PROVINCE_ZH[i]
         save_name = self._provinces.get(i)
         if save_name:
+            # 存档英文地名尽量换成中文
+            from eu4_chronicle.names.catalog import PLACE_EN_ZH
+
+            if save_name in PLACE_EN_ZH:
+                return PLACE_EN_ZH[save_name]
+            for en, zh in PLACE_EN_ZH.items():
+                if en.lower() == save_name.lower():
+                    return zh
             return save_name
         return f"省份{i}"
 
@@ -70,8 +79,16 @@ class NameResolver:
             return "（无）"
         return "、".join(self.province(p) for p in ids)
 
+    def war(self, name: str | None, *, attackers: list | None = None, defenders: list | None = None) -> str:
+        return translate_war_name(
+            name,
+            attackers=list(attackers or []),
+            defenders=list(defenders or []),
+            country_label=self.country,
+        )
+
     def rewrite_event(self, ev: DiffEvent) -> DiffEvent:
-        """用可读名称重写 summary，保留原始 detail。"""
+        """用可读名称重写 summary，保留原始 detail（战争名写入 name_zh）。"""
         tag = ev.tag
         other = ev.other_tag
         c = self.country
@@ -113,14 +130,32 @@ class NameResolver:
                     parts.append("失去附庸 " + "、".join(c(x) for x in lost))
                 summary = f"{c(tag)} 附庸变化：" + ("；".join(parts) if parts else "结构变动")
         elif ev.kind == "war_started":
+            wname = self.war(
+                detail.get("name"),
+                attackers=detail.get("attackers"),
+                defenders=detail.get("defenders"),
+            )
+            detail["name_zh"] = wname
             att = "、".join(c(x) for x in detail.get("attackers") or [])
             defe = "、".join(c(x) for x in detail.get("defenders") or [])
-            summary = f"爆发战争「{detail.get('name') or '未名'}」：{att or '？'} 进攻 {defe or '？'}"
+            summary = f"爆发战争「{wname}」：{att or '？'} 进攻 {defe or '？'}"
         elif ev.kind == "war_ended":
-            summary = f"战争「{detail.get('name') or '未名'}」落下帷幕"
+            wname = self.war(
+                detail.get("name"),
+                attackers=detail.get("attackers"),
+                defenders=detail.get("defenders"),
+            )
+            detail["name_zh"] = wname
+            summary = f"战争「{wname}」落下帷幕"
         elif ev.kind == "war_score_changed":
+            wname = self.war(
+                detail.get("war") or detail.get("name"),
+                attackers=detail.get("attackers"),
+                defenders=detail.get("defenders"),
+            )
+            detail["name_zh"] = wname
             summary = (
-                f"战争「{detail.get('war') or '未名'}」中"
+                f"战争「{wname}」中"
                 f"{c(tag)} 战争分数 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
             )
         elif ev.kind == "development_changed":
@@ -163,7 +198,7 @@ class NameResolver:
         elif ev.kind == "prestige_changed":
             summary = f"{c(tag)} 威望 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
 
-        return ev.model_copy(update={"summary": summary})
+        return ev.model_copy(update={"summary": summary, "detail": detail})
 
     def rewrite_diff(self, diff: DiffResult) -> DiffResult:
         return diff.model_copy(

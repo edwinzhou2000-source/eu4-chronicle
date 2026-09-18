@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from eu4_chronicle.ae import AeAssessment, assess_player_ae
 from eu4_chronicle.agents import make_brief, run_diplomat, run_editor, run_historian, run_strategist
 from eu4_chronicle.config import Settings, get_settings
 from eu4_chronicle.diff import diff_states
@@ -51,7 +52,12 @@ async def analyze_states(
     )
     names = NameResolver.from_states(prev, curr)
     readable = names.rewrite_diff(filtered)
-    return await synthesize(readable, settings=settings, names=names)
+    player = readable.player
+    ae_snapshot: dict[str, float] = {}
+    if player and player in curr.countries:
+        ae_snapshot = dict(curr.countries[player].aggressive_expansion or {})
+    ae = assess_player_ae(readable, ae_snapshot=ae_snapshot, country_label=names.country)
+    return await synthesize(readable, settings=settings, names=names, ae=ae)
 
 
 async def synthesize(
@@ -59,10 +65,13 @@ async def synthesize(
     *,
     settings: Settings | None = None,
     names: NameResolver | None = None,
+    ae: AeAssessment | None = None,
 ) -> ChronicleReport:
     settings = settings or get_settings()
     names = names or NameResolver()
-    brief = make_brief(diff)
+    if ae is None:
+        ae = assess_player_ae(diff, country_label=names.country)
+    brief = make_brief(diff, names=names, ae=ae)
     mode = settings.resolved_mode()
 
     sem = asyncio.Semaphore(max(1, settings.agent_concurrency))
@@ -72,12 +81,12 @@ async def synthesize(
             return await coro
 
     historian, strategist, diplomat = await asyncio.gather(
-        _guard(run_historian(settings, diff, brief, names=names)),
-        _guard(run_strategist(settings, diff, brief, names=names)),
-        _guard(run_diplomat(settings, diff, brief, names=names)),
+        _guard(run_historian(settings, diff, brief, names=names, ae=ae)),
+        _guard(run_strategist(settings, diff, brief, names=names, ae=ae)),
+        _guard(run_diplomat(settings, diff, brief, names=names, ae=ae)),
     )
     editor = await run_editor(
-        settings, diff, brief, historian, strategist, diplomat, names=names
+        settings, diff, brief, historian, strategist, diplomat, names=names, ae=ae
     )
 
     player_label = names.country(diff.player) if diff.player else "EU4"
