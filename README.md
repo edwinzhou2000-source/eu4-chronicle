@@ -11,7 +11,7 @@
 3. 将 TAG / 省份 ID / 战争名 **可读化**（存档字段优先，否则内置中文名与战争名模板，再否则「国名(TAG)」/「省份N」）
 4. 主编输出一篇成稿：标题钩子 + 时间跨度 + 叙事 + 战局要点 + 外交/AE + 短结尾（**不会**把三角色原文粘三遍）
 5. **AE 诚实表述**：无跳变或 AE 很低时写「未见高 AE / 包围网风险低」；仅接近/超过 50 才警告包围网
-6. **事实锚定**：同对手「断盟+收附」合并为收附；从存档 `defender_score`/`attacker_score`（及参战国显式战分）读取战争分数并分档写战局（≥50→优势在握）；禁止粮草/补给线等无数据空话；有战分时禁止「未解析到 / 不作胜负判断」
+6. **事实锚定**：同对手「断盟+收附」合并为收附；总战分优先读参战国 `war_score`/`warscore`，否则 Osallek `defender_score`/`attacker_score`（|值|≤25 的战争级字段在有更大显式战分时作 ticking）；禁止粮草/补给线等无数据空话；有战分时禁止「未解析到 / 不作胜负判断」
 7. 提供 CLI 与本机 FastAPI（`127.0.0.1:18765`）
 
 **不做**：账号体系、数据库、云端上传存档、铁人加密档。
@@ -80,13 +80,19 @@ uv run eu4-chronicle analyze \
   --out ~/Desktop/teu-chronicle.md
 ```
 
+若战分可疑，先 dump 原始字段（把输出贴回即可钉死总战分/ticking）：
+
+```bash
+uv run eu4-chronicle dump-war-scores --save "$EU4_SAVE_DIR/Teutonic_Order1454_11_18.eu4"
+```
+
 高级选项：
 
 ```bash
 # 保留全球事件（调试/看世界）
 uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --include-global
 
-# 额外打印史官/军师/外交官小节（默认只出成稿）
+# 额外打印史官/军师/外交官小节，以及 curr 档 raw_war_scores 一行
 uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --verbose
 ```
 

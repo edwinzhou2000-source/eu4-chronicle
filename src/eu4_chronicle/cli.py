@@ -1,4 +1,4 @@
-"""CLI：eu4-chronicle analyze / serve / list-saves。"""
+"""CLI：eu4-chronicle analyze / dump-war-scores / serve / list-saves。"""
 
 from __future__ import annotations
 
@@ -40,6 +40,29 @@ def list_saves(
         typer.echo(f"{f.name}\t{f.stat().st_size}\t{f}")
 
 
+@app.command("dump-war-scores")
+def dump_war_scores_cmd(
+    save: Path = typer.Option(..., "--save", exists=True, dir_okay=False, help="要检查的 .eu4 存档"),
+    all_wars: bool = typer.Option(
+        False,
+        "--all-wars",
+        help="输出全部 active_war（默认只打玩家参与的）",
+    ),
+) -> None:
+    """打印玩家参与战争的原始战分相关字段，便于贴回钉死总战分/ticking 映射。"""
+    from eu4_chronicle.parser import IronmanSaveError, SaveParseError, dump_war_scores
+
+    try:
+        text = dump_war_scores(save, player_only=not all_wars)
+    except IronmanSaveError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except SaveParseError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(text)
+
+
 @app.command("analyze")
 def analyze(
     prev: Path = typer.Option(..., "--prev", exists=True, dir_okay=False, help="较早存档"),
@@ -55,7 +78,7 @@ def analyze(
         False,
         "--verbose",
         "-v",
-        help="额外打印史官/军师/外交官小节（调试用；默认只输出可分享成稿）",
+        help="额外打印史官/军师/外交官草稿，以及 curr 档原始战分字段一行（调试用）",
     ),
 ) -> None:
     """解析两档 → 玩家过滤 Diff → 史官/军师/外交官 → 主编成稿。"""
@@ -71,6 +94,8 @@ def analyze(
     )
     typer.echo("")
     if verbose:
+        from eu4_chronicle.parser import parse_save
+
         for section in report.sections:
             if section.role == "editor":
                 continue
@@ -79,6 +104,42 @@ def analyze(
             typer.echo("")
         typer.echo("---")
         typer.echo("")
+        try:
+            curr_state = parse_save(curr)
+            for w in curr_state.wars:
+                if report.player:
+                    in_war = (
+                        report.player in w.attackers
+                        or report.player in w.defenders
+                        or any(p.tag == report.player for p in w.participants)
+                    )
+                    if not in_war:
+                        continue
+                bits = [
+                    f"war={w.name!r}",
+                    f"attacker_score={w.attacker_score}",
+                    f"defender_score={w.defender_score}",
+                    f"total_src={w.total_score_source}",
+                    f"total={w.total_attacker_score}",
+                    f"ticking_src={w.ticking_score_source}",
+                    f"ticking={w.ticking_attacker_score}",
+                ]
+                if w.raw_score_fields:
+                    compact = ", ".join(
+                        f"{k}={v}" for k, v in sorted(w.raw_score_fields.items())[:24]
+                    )
+                    bits.append(f"raw=[{compact}]")
+                typer.echo("raw_war_scores: " + " | ".join(bits))
+        except Exception as exc:  # noqa: BLE001 — verbose 辅助，不影响成稿
+            typer.echo(f"raw_war_scores: (无法读取 curr: {exc})")
+        typer.echo("")
+        typer.echo("---")
+        typer.echo("")
+        typer.echo(
+            f"(完整原始字段: uv run eu4-chronicle dump-war-scores --save {curr})",
+            err=True,
+        )
+
     typer.echo(report.final_markdown)
     if out:
         out.write_text(report.final_markdown, encoding="utf-8")

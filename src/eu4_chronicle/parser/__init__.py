@@ -295,7 +295,8 @@ def _extract_wars(root: ObjectNode) -> list[WarState]:
       attackers={ TEU ... }
       defenders={ POL ... }
       participants={ value=.. tag="TEU" ... }  # 重复键；value 多为贡献度
-      defender_score= / attacker_score=       # 战争级；同存且 |值| 不同时大者为总战分、≤25 者为 ticking
+      defender_score= / attacker_score=       # Osallek：总战分视角（优先 defender_score）
+      # |值|>25 与 ≤25 同存时：大=总、小=ticking；参战国 war_score 可覆盖 ≤25 的战争级
       history={ DATE={ add_attacker=... } battle={...} war_goal={...} }
 
     合成样例仍支持 active_wars={ war={ participants={ TAG={ warscore= } } } }。
@@ -324,6 +325,70 @@ def _extract_wars(root: ObjectNode) -> list[WarState]:
     return wars
 
 
+_SCORE_KEY_HINTS = ("score", "warscore", "ticking")
+
+
+def _key_looks_score_related(key: str) -> bool:
+    low = key.lower()
+    return any(h in low for h in _SCORE_KEY_HINTS)
+
+
+def _collect_raw_score_fields(war: ObjectNode) -> dict[str, float]:
+    """递归收集战争块内一切含 score/warscore/ticking 的数值键，以及 participants 的 value/tag。"""
+    out: dict[str, float] = {}
+
+    def walk(node: ObjectNode, prefix: str) -> None:
+        for key, val in node.values.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if isinstance(val, ObjectNode):
+                walk(val, path)
+            elif isinstance(val, bool):
+                continue
+            elif isinstance(val, (int, float)):
+                if _key_looks_score_related(key) or key in {"value"}:
+                    out[path] = float(val)
+            elif isinstance(val, str):
+                if key == "tag" or _key_looks_score_related(key):
+                    try:
+                        out[path] = float(val.strip('"'))
+                    except ValueError:
+                        pass
+        for key, vals in node.multi.items():
+            for i, val in enumerate(vals):
+                path = f"{prefix}.{key}[{i}]" if prefix else f"{key}[{i}]"
+                if isinstance(val, ObjectNode):
+                    walk(val, path)
+                elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                    if _key_looks_score_related(key) or key in {"value"}:
+                        out[path] = float(val)
+        for key, lst in node.lists.items():
+            path = f"{prefix}.{key}" if prefix else key
+            for i, item in enumerate(lst):
+                item_path = f"{path}[{i}]"
+                if isinstance(item, ObjectNode):
+                    walk(item, item_path)
+                elif isinstance(item, (int, float)) and not isinstance(item, bool):
+                    if _key_looks_score_related(key):
+                        out[item_path] = float(item)
+
+    walk(war, "")
+    # participants 重复块：显式标出 tag/value/war_score
+    for i, part in enumerate(war.all_objects("participants")):
+        tag = part.get_str("tag") or f"#{i}"
+        for key in ("value", "war_score", "warscore", "score"):
+            if part.has(key):
+                fv = part.get_float_optional(key)
+                if fv is None and key in part.values:
+                    raw = part.values[key]
+                    try:
+                        fv = float(raw)
+                    except (TypeError, ValueError):
+                        fv = None
+                if fv is not None:
+                    out[f"participants[{i}|{tag}].{key}"] = float(fv)
+    return out
+
+
 def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
     history = war.get_object("history")
     attackers = [str(x).strip('"') for x in war.get_list("attackers") if x]
@@ -335,6 +400,7 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
     goal = _parse_war_goal(war, history)
     battles = _parse_battles(history)
     occupied = _count_occupied_provinces(root, attackers, defenders)
+    raw_scores = _collect_raw_score_fields(war)
 
     state = WarState(
         name=war.get_str("name") or war.get_str("war_name") or "未命名战争",
@@ -343,6 +409,7 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
         participants=participants,
         attacker_score=war.get_float_optional("attacker_score"),
         defender_score=war.get_float_optional("defender_score"),
+        raw_score_fields=raw_scores,
         war_goal_type=goal.get("type"),
         casus_belli=goal.get("casus_belli"),
         war_goal_province=goal.get("province"),
@@ -352,6 +419,71 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
     )
     state.resolve_total_and_ticking()
     return state
+
+
+def format_war_score_dump(state: GameState, *, player_only: bool = True) -> str:
+    """格式化玩家参与战争的原始分数字段，供本机贴回钉死映射。"""
+    player = state.player
+    lines: list[str] = [
+        f"# dump-war-scores  date={state.date}  player={player or '?'}",
+        f"# source={state.source_path or '(text)'}",
+        "# 请把输出整段贴回；优先对照 attacker_score / defender_score / participants.*.war_score|value",
+        "",
+    ]
+    wars = state.wars
+    if player_only and player:
+        wars = [
+            w
+            for w in state.wars
+            if player in w.attackers
+            or player in w.defenders
+            or any(p.tag == player for p in w.participants)
+        ]
+    if not wars:
+        lines.append("(无匹配的 active_war)")
+        return "\n".join(lines)
+
+    for idx, w in enumerate(wars, 1):
+        side = "?"
+        if player in w.attackers:
+            side = "attackers"
+        elif player in w.defenders:
+            side = "defenders"
+        lines.append(f"## [{idx}] {w.name}")
+        lines.append(f"attackers={w.attackers}")
+        lines.append(f"defenders={w.defenders}")
+        lines.append(f"player_side={side}")
+        lines.append(f"attacker_score={w.attacker_score}")
+        lines.append(f"defender_score={w.defender_score}")
+        lines.append(
+            f"resolved_total_attacker={w.total_attacker_score}  source={w.total_score_source}"
+        )
+        lines.append(
+            f"resolved_ticking_attacker={w.ticking_attacker_score}  source={w.ticking_score_source}"
+        )
+        if player:
+            lines.append(f"score_for(player)={w.score_for(player)}")
+            lines.append(f"ticking_for(player)={w.ticking_for(player)}")
+        lines.append("participants:")
+        for p in w.participants:
+            lines.append(
+                f"  - tag={p.tag} side={p.side} warscore_known={p.warscore_known}"
+                f" warscore={p.warscore} contribution={p.contribution}"
+            )
+        lines.append("raw_score_fields:")
+        if w.raw_score_fields:
+            for k in sorted(w.raw_score_fields):
+                lines.append(f"  {k}={w.raw_score_fields[k]}")
+        else:
+            lines.append("  (none)")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def dump_war_scores(path: Path | str, *, player_only: bool = True) -> str:
+    """解析存档并返回 dump-war-scores 文本。"""
+    state = parse_save(path)
+    return format_war_score_dump(state, player_only=player_only)
 
 
 def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNode]]:

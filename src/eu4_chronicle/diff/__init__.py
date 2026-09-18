@@ -333,6 +333,8 @@ def _war_detail_extras(w: WarState, player: str = "") -> dict:
         extras["total_score_source"] = w.total_score_source
     if w.ticking_score_source:
         extras["ticking_score_source"] = w.ticking_score_source
+    if w.raw_score_fields:
+        extras["raw_score_fields"] = dict(w.raw_score_fields)
     if player:
         tick = w.ticking_for(player)
         if tick is not None:
