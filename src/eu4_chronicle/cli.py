@@ -46,21 +46,39 @@ def analyze(
     curr: Path = typer.Option(..., "--curr", exists=True, dir_okay=False, help="较新存档"),
     out: Optional[Path] = typer.Option(None, "--out", help="将最终 Markdown 写入文件"),
     mode: Optional[str] = typer.Option(None, "--mode", help="mock 或 llm（覆盖环境变量）"),
+    include_global: bool = typer.Option(
+        False,
+        "--include-global",
+        help="保留全球无关战争/远方内政（默认只保留玩家强相关事件）",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="额外打印史官/军师/外交官小节（调试用；默认只输出可分享成稿）",
+    ),
 ) -> None:
-    """解析两档 → Diff → 史官/军师/外交官 → 主编合成。"""
+    """解析两档 → 玩家过滤 Diff → 史官/军师/外交官 → 主编成稿。"""
     settings = get_settings()
     if mode:
         settings = settings.model_copy(update={"mode": mode})
-    report = asyncio.run(analyze_saves(prev, curr, settings=settings))
-    typer.echo(f"# 模式: {report.mode} | 事件: {report.event_count} | 玩家: {report.player}")
+    report = asyncio.run(
+        analyze_saves(prev, curr, settings=settings, include_global=include_global)
+    )
+    typer.echo(
+        f"# 模式: {report.mode} | 事件: {report.event_count} | 玩家: {report.player}"
+        f"{' | 含全球' if include_global else ' | 玩家过滤'}"
+    )
     typer.echo("")
-    for section in report.sections:
-        if section.role == "editor":
-            continue
-        typer.echo(f"## {section.title}{'（mock）' if section.mock else ''}")
-        typer.echo(section.content)
+    if verbose:
+        for section in report.sections:
+            if section.role == "editor":
+                continue
+            typer.echo(f"## {section.title}{'（mock）' if section.mock else ''}")
+            typer.echo(section.content)
+            typer.echo("")
+        typer.echo("---")
         typer.echo("")
-    typer.echo("---")
     typer.echo(report.final_markdown)
     if out:
         out.write_text(report.final_markdown, encoding="utf-8")

@@ -78,6 +78,27 @@ countries={
 		core_provinces={ 1773 }
 		army_size=3
 	}
+	ITO={
+		name="Ito"
+		development=10
+		owned_provinces={ 1012 1020 }
+		army_size=3
+	}
+	SMZ={
+		name="Shimazu"
+		development=9
+		owned_provinces={ 1018 }
+		army_size=2
+	}
+}
+provinces={
+	151={ name="Constantinople" }
+	149={ name="Edirne" }
+	316={ name="Galata" }
+	317={ name="Hudavendigar" }
+	161={ name="Tirgoviste" }
+	1012={ name="Sapporo" }
+	1020={ name="Kyoto" }
 }
 active_wars={
 	war={
@@ -94,5 +115,10 @@ active_wars={
 				warscore=-42
 			}
 		}
+	}
+	war={
+		name="Shimazu-Ito Feud"
+		attackers={ SMZ }
+		defenders={ ITO }
 	}
 }

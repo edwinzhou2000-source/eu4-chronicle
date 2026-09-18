@@ -48,11 +48,14 @@ def test_parse_sample_prev():
 def test_parse_sample_curr_wars():
     state = parse_save(SAMPLES / "byz_1453.eu4")
     assert state.date == "1453.5.29"
-    assert len(state.wars) == 1
-    war = state.wars[0]
+    assert len(state.wars) >= 1
+    byz_wars = [w for w in state.wars if "BYZ" in w.attackers or "BYZ" in w.defenders]
+    assert byz_wars
+    war = byz_wars[0]
     assert "BYZ" in war.attackers
     assert "TUR" in war.defenders
     assert "ATH" in state.countries["BYZ"].subjects
+    assert state.province_names.get(151) == "Constantinople"
 
 
 def test_ironman_binary_rejected(tmp_path: Path):

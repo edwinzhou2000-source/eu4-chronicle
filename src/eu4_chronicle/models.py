@@ -56,6 +56,7 @@ class GameState(BaseModel):
     ironman: bool = False
     countries: dict[str, CountryState] = Field(default_factory=dict)
     wars: list[WarState] = Field(default_factory=list)
+    province_names: dict[int, str] = Field(default_factory=dict)
     source_path: str | None = None
     raw_meta: dict[str, Any] = Field(default_factory=dict)
 
@@ -101,6 +102,8 @@ class DiffResult(BaseModel):
     curr_date: str
     player: str
     events: list[DiffEvent] = Field(default_factory=list)
+    raw_event_count: int | None = None
+    filtered: bool = True
 
     def events_for(self, *kinds: EventKind) -> list[DiffEvent]:
         wanted = set(kinds)

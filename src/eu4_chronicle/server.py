@@ -21,6 +21,10 @@ class AnalyzeRequest(BaseModel):
     prev: str = Field(..., description="较早存档文件名或绝对路径")
     curr: str = Field(..., description="较新存档文件名或绝对路径")
     mode: str | None = Field(None, description="mock 或 llm")
+    include_global: bool = Field(
+        False,
+        description="为 True 时保留全球无关事件；默认玩家中心过滤",
+    )
 
 
 def _resolve_save(path_or_name: str) -> Path:
@@ -75,7 +79,12 @@ async def analyze(body: AnalyzeRequest) -> dict:
     prev = _resolve_save(body.prev)
     curr = _resolve_save(body.curr)
     try:
-        report = await analyze_saves(prev, curr, settings=settings)
+        report = await analyze_saves(
+            prev,
+            curr,
+            settings=settings,
+            include_global=body.include_global,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

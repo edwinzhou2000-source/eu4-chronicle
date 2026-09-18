@@ -6,6 +6,7 @@ from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState,
 
 
 def diff_states(prev: GameState, curr: GameState) -> DiffResult:
+    """全量 Diff（含全球事件）。玩家中心裁剪见 ``eu4_chronicle.filter``。"""
     player = curr.player or prev.player
     events: list[DiffEvent] = []
 
@@ -20,18 +21,6 @@ def diff_states(prev: GameState, curr: GameState) -> DiffResult:
         )
 
     tags = sorted(set(prev.countries) | set(curr.countries))
-    focus = {player} if player else set()
-    # 也关注玩家盟国/宿敌相关变化：先全量再由 Agent 筛选；为控制体量，优先玩家及与玩家有关系的国家
-    related = set(focus)
-    for src in (prev, curr):
-        p = src.countries.get(player) if player else None
-        if p:
-            related.update(p.allies)
-            related.update(p.rivals)
-            related.update(p.subjects)
-            related.update(p.aggressive_expansion)
-            related.update(p.opinion_of)
-
     for tag in tags:
         a = prev.countries.get(tag)
         b = curr.countries.get(tag)
@@ -56,23 +45,18 @@ def diff_states(prev: GameState, curr: GameState) -> DiffResult:
             )
             continue
         assert a is not None and b is not None
-        # 非相关小国：只保留吞并级与对玩家 AE/关系
-        interesting = tag in related or bool(set(a.owned_provinces) ^ set(b.owned_provinces))
-        if not interesting and player and tag != player:
-            # 仍检测对玩家的 AE/opinion
-            _diff_ae_opinion(a, b, events, only_vs=player)
-            continue
         events.extend(_diff_country(a, b))
 
     events.extend(_diff_wars(prev.wars, curr.wars, player))
 
-    # 稳定排序：种类 + tag
     events.sort(key=lambda e: (e.kind, e.tag or "", e.summary))
     return DiffResult(
         prev_date=prev.date,
         curr_date=curr.date,
         player=player,
         events=events,
+        raw_event_count=len(events),
+        filtered=False,
     )
 
 
@@ -320,36 +304,48 @@ def _diff_ae_opinion(
 
 
 def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[DiffEvent]:
+    """战争事件：tag 标主参战方，detail 带攻守列表；不过滤（由 filter 裁剪）。"""
     events: list[DiffEvent] = []
     prev_map = {w.name: w for w in prev}
     curr_map = {w.name: w for w in curr}
 
     for name in sorted(set(curr_map) - set(prev_map)):
         w = curr_map[name]
+        involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
+        primary = player if player in involved else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else None))
         events.append(
             DiffEvent(
                 kind="war_started",
-                tag=player or None,
+                tag=primary,
                 summary=f"爆发战争「{name}」：攻方 {w.attackers} vs 守方 {w.defenders}",
                 detail={
                     "name": name,
                     "attackers": w.attackers,
                     "defenders": w.defenders,
+                    "participants": involved,
                 },
             )
         )
     for name in sorted(set(prev_map) - set(curr_map)):
         w = prev_map[name]
+        involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
+        primary = player if player in involved else (w.attackers[0] if w.attackers else None)
         events.append(
             DiffEvent(
                 kind="war_ended",
-                tag=player or None,
+                tag=primary,
                 summary=f"战争「{name}」结束（攻方曾为 {w.attackers}，守方 {w.defenders}）",
-                detail={"name": name},
+                detail={
+                    "name": name,
+                    "attackers": w.attackers,
+                    "defenders": w.defenders,
+                    "participants": involved,
+                },
             )
         )
     for name in sorted(set(prev_map) & set(curr_map)):
         a, b = prev_map[name], curr_map[name]
+        involved = list(dict.fromkeys([*b.attackers, *b.defenders, *a.attackers, *a.defenders]))
         a_scores = {p.tag: p.warscore for p in a.participants}
         b_scores = {p.tag: p.warscore for p in b.participants}
         for tag in sorted(set(a_scores) | set(b_scores)):
@@ -360,7 +356,14 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                         kind="war_score_changed",
                         tag=tag,
                         summary=f"战争「{name}」中 {tag} 战争分数 {av:.0f} → {bv:.0f}",
-                        detail={"war": name, "from": av, "to": bv},
+                        detail={
+                            "war": name,
+                            "from": av,
+                            "to": bv,
+                            "attackers": b.attackers,
+                            "defenders": b.defenders,
+                            "participants": involved,
+                        },
                     )
                 )
     return events
@@ -381,10 +384,16 @@ def _fmt_monarch(c: CountryState) -> str:
 
 
 def events_to_brief(diff: DiffResult, *, limit: int = 80) -> str:
+    player = diff.player or "未知"
     lines = [
-        f"玩家: {diff.player or '未知'}",
+        f"玩家: {player}",
         f"区间: {diff.prev_date or '?'} → {diff.curr_date or '?'}",
-        f"事件数: {len(diff.events)}",
+        f"事件数: {len(diff.events)}"
+        + (
+            f"（过滤前 {diff.raw_event_count}）"
+            if diff.raw_event_count and diff.raw_event_count != len(diff.events)
+            else ""
+        ),
         "",
     ]
     for i, ev in enumerate(diff.events[:limit], 1):

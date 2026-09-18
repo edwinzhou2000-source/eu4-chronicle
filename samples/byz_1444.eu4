@@ -71,6 +71,25 @@ countries={
 		allies={ BYZ }
 		army_size=6
 	}
+	ITO={
+		name="Ito"
+		development=8
+		owned_provinces={ 1012 }
+		army_size=2
+	}
+}
+provinces={
+	151={ name="Constantinople" }
+	149={ name="Edirne" }
+	316={ name="Galata" }
+	317={ name="Hudavendigar" }
+	161={ name="Tirgoviste" }
+	1012={ name="Sapporo" }
 }
 active_wars={
+	war={
+		name="Ito Consolidation War"
+		attackers={ ITO }
+		defenders={ SMZ }
+	}
 }

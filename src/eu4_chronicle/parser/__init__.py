@@ -107,6 +107,7 @@ def extract_game_state(root: ObjectNode) -> GameState:
             countries[tag] = _extract_country(tag, node)
 
     wars = _extract_wars(root)
+    province_names = _extract_province_names(root)
 
     return GameState(
         date=date,
@@ -114,7 +115,12 @@ def extract_game_state(root: ObjectNode) -> GameState:
         ironman=ironman,
         countries=countries,
         wars=wars,
-        raw_meta={"country_count": len(countries), "war_count": len(wars)},
+        province_names=province_names,
+        raw_meta={
+            "country_count": len(countries),
+            "war_count": len(wars),
+            "province_name_count": len(province_names),
+        },
     )
 
 
@@ -237,6 +243,25 @@ def _count_units(node: ObjectNode, key: str) -> float:
         for _ in army.all_objects("regiment") + army.all_objects("ship"):
             total += 1
     return total
+
+
+def _extract_province_names(root: ObjectNode) -> dict[int, str]:
+    """从 provinces 块抽取 id → 名称（若存档带 name 字段）。"""
+    names: dict[int, str] = {}
+    provinces = root.get_object("provinces")
+    if provinces is None:
+        return names
+    for key, node in provinces.values.items():
+        try:
+            pid = int(key)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(node, ObjectNode):
+            continue
+        pname = node.get_str("name") or node.get_str("province_name")
+        if pname:
+            names[pid] = pname
+    return names
 
 
 def _extract_wars(root: ObjectNode) -> list[WarState]:
