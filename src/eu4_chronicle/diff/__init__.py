@@ -304,7 +304,46 @@ def _diff_ae_opinion(
 
 
 def _war_scores(w: WarState) -> dict[str, float]:
-    return {p.tag: float(p.warscore) for p in w.participants}
+    tags = set(w.attackers) | set(w.defenders) | {p.tag for p in w.participants}
+    out: dict[str, float] = {}
+    for tag in tags:
+        score = w.score_for(tag)
+        if score is not None:
+            out[tag] = float(score)
+    return out
+
+
+def _war_detail_extras(w: WarState) -> dict:
+    extras: dict = {}
+    if w.war_goal_type:
+        extras["war_goal_type"] = w.war_goal_type
+    if w.casus_belli:
+        extras["casus_belli"] = w.casus_belli
+    if w.war_goal_province is not None:
+        extras["war_goal_province"] = w.war_goal_province
+    if w.war_goal_tag:
+        extras["war_goal_tag"] = w.war_goal_tag
+    if w.occupied_provinces is not None:
+        extras["occupied_provinces"] = w.occupied_provinces
+    if w.attacker_score is not None:
+        extras["attacker_score"] = w.attacker_score
+    if w.defender_score is not None:
+        extras["defender_score"] = w.defender_score
+    if w.battles:
+        extras["major_battles"] = [
+            {
+                "name": b.name,
+                "date": b.date,
+                "location": b.location,
+                "attacker_won": b.attacker_won,
+                "attacker_tag": b.attacker_tag,
+                "defender_tag": b.defender_tag,
+                "attacker_losses": b.attacker_losses,
+                "defender_losses": b.defender_losses,
+            }
+            for b in w.battles[:3]
+        ]
+    return extras
 
 
 def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[DiffEvent]:
@@ -322,10 +361,10 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
             else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else None))
         )
         scores = _war_scores(w)
-        player_ws = scores.get(player) if player else None
+        player_ws = w.score_for(player) if player else None
         score_bit = ""
         if player_ws is not None:
-            score_bit = f"；玩家战分 {player_ws:.0f}"
+            score_bit = f"；玩家战分 {player_ws:+.0f}"
         events.append(
             DiffEvent(
                 kind="war_started",
@@ -338,6 +377,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "participants": involved,
                     "scores": scores,
                     "player_warscore": player_ws,
+                    **_war_detail_extras(w),
                 },
             )
         )
@@ -346,6 +386,7 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
         involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
         primary = player if player in involved else (w.attackers[0] if w.attackers else None)
         scores = _war_scores(w)
+        player_ws = w.score_for(player) if player else None
         events.append(
             DiffEvent(
                 kind="war_ended",
@@ -357,7 +398,8 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "defenders": w.defenders,
                     "participants": involved,
                     "scores": scores,
-                    "player_warscore": scores.get(player) if player else None,
+                    "player_warscore": player_ws,
+                    **_war_detail_extras(w),
                 },
             )
         )
@@ -377,12 +419,19 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
         if player and player in involved and player not in tags_to_emit:
             tags_to_emit.add(player)
         for tag in sorted(tags_to_emit):
-            av, bv = a_scores.get(tag, 0.0), b_scores.get(tag, 0.0)
+            av = a.score_for(tag)
+            bv = b.score_for(tag)
+            # 两端皆未知则跳过，避免伪造 0→0
+            if av is None and bv is None:
+                continue
+            av_f = float(av) if av is not None else 0.0
+            bv_f = float(bv) if bv is not None else 0.0
+            player_ws = b.score_for(player) if player else None
             events.append(
                 DiffEvent(
                     kind="war_score_changed",
                     tag=tag,
-                    summary=f"战争「{name}」中 {tag} 战争分数 {av:.0f} → {bv:.0f}",
+                    summary=f"战争「{name}」中 {tag} 战争分数 {av_f:.0f} → {bv_f:.0f}",
                     detail={
                         "war": name,
                         "name": name,
@@ -392,7 +441,8 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                         "defenders": b.defenders,
                         "participants": involved,
                         "scores": b_scores,
-                        "player_warscore": b_scores.get(player) if player else None,
+                        "player_warscore": player_ws,
+                        **_war_detail_extras(b),
                     },
                 )
             )

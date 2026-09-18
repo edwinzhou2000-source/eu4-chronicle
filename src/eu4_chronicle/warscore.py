@@ -26,6 +26,11 @@ class WarStanding:
     tier: str = "unknown"  # decisive | advantage | contested | disadvantage | collapse | unknown
     attackers: list[str] = field(default_factory=list)
     defenders: list[str] = field(default_factory=list)
+    war_goal_type: str | None = None
+    casus_belli: str | None = None
+    war_goal_province: int | None = None
+    occupied_provinces: int | None = None
+    major_battles: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -62,7 +67,7 @@ def classify_warscore(score: float) -> str:
 
 def tier_phrase(tier: str, *, score: float | None = None) -> str:
     """面向成稿的短句；仅 contested 可用「胜负未定」。"""
-    sc = f"（战分 {score:.0f}）" if score is not None else ""
+    sc = f"（战分 {score:+.0f}）" if score is not None else ""
     if tier == "decisive":
         return f"优势在握，基本打赢{sc}"
     if tier == "advantage":
@@ -84,10 +89,12 @@ def _score_from_event(e: DiffEvent, player: str) -> float | None:
         except (TypeError, ValueError):
             pass
     if e.kind == "war_score_changed" and e.tag == player:
+        if detail.get("to") is None:
+            return None
         try:
             return float(detail.get("to", 0))
         except (TypeError, ValueError):
-            return 0.0
+            return None
     scores = detail.get("scores") or {}
     if isinstance(scores, dict) and player in scores:
         try:
@@ -118,9 +125,6 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             continue
 
         score = _score_from_event(e, player) if player else None
-        if score is None and e.kind == "war_ended":
-            # 结束战争若无分，仍记录名称供叙事提及结束
-            pass
 
         standing = by_war.get(name)
         if standing is None:
@@ -138,6 +142,16 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             standing.attackers = list(detail["attackers"])
         if detail.get("defenders"):
             standing.defenders = list(detail["defenders"])
+        if detail.get("war_goal_type"):
+            standing.war_goal_type = detail["war_goal_type"]
+        if detail.get("casus_belli"):
+            standing.casus_belli = detail["casus_belli"]
+        if detail.get("war_goal_province") is not None:
+            standing.war_goal_province = detail["war_goal_province"]
+        if detail.get("occupied_provinces") is not None:
+            standing.occupied_provinces = detail["occupied_provinces"]
+        if detail.get("major_battles"):
+            standing.major_battles = list(detail["major_battles"])
 
         if score is not None:
             if e.kind == "war_score_changed" and detail.get("from") is not None:
@@ -167,7 +181,7 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
         wlabel = s.war_name_zh or s.war_name
         if s.score_known:
             lines.append(
-                f"「{wlabel}」玩家战分 {s.player_score:.0f} → tier={s.tier}："
+                f"「{wlabel}」玩家战分 {s.player_score:+.0f} → tier={s.tier}："
                 f"{tier_phrase(s.tier, score=s.player_score)}"
             )
         else:
@@ -175,6 +189,7 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
     lines.append(
         "硬性：战分显著为正（≥50）须写优势在握/基本打赢；"
         "仅在 |战分| 较低（胶着）时才写胜负未定；禁止无战分依据的「尘埃未定」。"
+        "有具体战分时禁止写「战分未知」「不作胜负判断」。"
     )
     return lines
 

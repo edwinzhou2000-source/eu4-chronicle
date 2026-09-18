@@ -130,7 +130,7 @@ class NameResolver:
             pws = detail.get("player_warscore")
             if pws is not None:
                 try:
-                    summary += f"；玩家战分 {float(pws):.0f}"
+                    summary += f"；玩家战分 {float(pws):+.0f}"
                 except (TypeError, ValueError):
                     pass
         elif ev.kind == "war_ended":
@@ -148,10 +148,13 @@ class NameResolver:
                 defenders=detail.get("defenders"),
             )
             detail["name_zh"] = wname
-            summary = (
-                f"战争「{wname}」中"
-                f"{c(tag)} 战争分数 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
-            )
+            fr, to = detail.get("from"), detail.get("to")
+            try:
+                fr_s = f"{float(fr):+.0f}" if fr is not None else "?"
+                to_s = f"{float(to):+.0f}" if to is not None else "?"
+            except (TypeError, ValueError):
+                fr_s, to_s = str(fr), str(to)
+            summary = f"战争「{wname}」中{c(tag)} 战争分数 {fr_s} → {to_s}"
         elif ev.kind == "subject_changed":
             if detail.get("appeared"):
                 summary = f"{c(tag)} 出现在后期档中（新生或释放）"

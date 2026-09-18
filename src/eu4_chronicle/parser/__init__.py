@@ -5,8 +5,30 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from eu4_chronicle.models import CountryState, GameState, Monarch, WarParticipant, WarState
+from eu4_chronicle.models import (
+    CountryState,
+    GameState,
+    Monarch,
+    WarBattle,
+    WarParticipant,
+    WarState,
+)
 from eu4_chronicle.parser.clausewitz import ObjectNode, parse_clausewitz_v2
+
+# 真档战争目标块名（Osallek WarGoalType）
+_WAR_GOAL_KEYS = (
+    "take_colony",
+    "take_core",
+    "take_border",
+    "take_province",
+    "take_capital",
+    "defend_capital",
+    "defend_country",
+    "naval_superiority",
+    "superiority",
+    "take_region",
+    "blockade_ports",
+)
 
 
 class IronmanSaveError(ValueError):
@@ -265,53 +287,282 @@ def _extract_province_names(root: ObjectNode) -> dict[int, str]:
 
 
 def _extract_wars(root: ObjectNode) -> list[WarState]:
-    wars: list[WarState] = []
-    active = root.get_object("active_war")
-    # active_war 可能重复键
+    """抽取进行中战争。
+
+    真档形态（Clausewitz / Osallek）：
+      active_war={ ... }          # 根级重复键
+      attackers={ TEU ... }
+      defenders={ POL ... }
+      participants={ value=.. tag="TEU" ... }  # 重复键；value 多为贡献度
+      defender_score= / attacker_score=       # 战争级战分（优先）
+      history={ DATE={ add_attacker=... } battle={...} war_goal={...} }
+
+    合成样例仍支持 active_wars={ war={ participants={ TAG={ warscore= } } } }。
+    """
     war_nodes: list[ObjectNode] = []
-    if active is not None:
-        war_nodes.append(active)
     war_nodes.extend(root.all_objects("active_war"))
 
-    # 也支持 active_wars={ war={...} war={...} }
     container = root.get_object("active_wars")
     if container is not None:
         war_nodes.extend(container.all_objects("war"))
         for key, val in container.values.items():
             if isinstance(val, ObjectNode) and key != "war":
                 war_nodes.append(val)
+        for item in container.get_list("war"):
+            if isinstance(item, ObjectNode):
+                war_nodes.append(item)
 
     seen: set[str] = set()
+    wars: list[WarState] = []
     for war in war_nodes:
         name = war.get_str("name") or war.get_str("war_name") or "未命名战争"
         if name in seen:
             continue
         seen.add(name)
-        attackers = [str(x).strip('"') for x in war.get_list("attackers") if x]
-        defenders = [str(x).strip('"') for x in war.get_list("defenders") if x]
-        # participants 块
-        participants: list[WarParticipant] = []
-        part_node = war.get_object("participants")
-        if part_node is not None:
-            for tag, p in part_node.values.items():
-                if not isinstance(p, ObjectNode):
-                    continue
-                side = "attackers" if tag in attackers else "defenders"
-                if p.get_str("side") in {"attackers", "defenders"}:
-                    side = p.get_str("side")  # type: ignore[assignment]
-                participants.append(
-                    WarParticipant(
-                        tag=tag,
-                        side=side,  # type: ignore[arg-type]
-                        warscore=p.get_float("warscore") or p.get_float("value"),
-                    )
-                )
-        wars.append(
-            WarState(
-                name=name,
-                attackers=attackers,
-                defenders=defenders,
-                participants=participants,
+        wars.append(_parse_one_war(war, root))
+    return wars
+
+
+def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
+    history = war.get_object("history")
+    attackers = [str(x).strip('"') for x in war.get_list("attackers") if x]
+    defenders = [str(x).strip('"') for x in war.get_list("defenders") if x]
+    if not attackers and not defenders:
+        attackers, defenders = _sides_from_history(history)
+
+    participants = _parse_participants(war, attackers, defenders)
+    goal = _parse_war_goal(war, history)
+    battles = _parse_battles(history)
+    occupied = _count_occupied_provinces(root, attackers, defenders)
+
+    return WarState(
+        name=war.get_str("name") or war.get_str("war_name") or "未命名战争",
+        attackers=attackers,
+        defenders=defenders,
+        participants=participants,
+        attacker_score=war.get_float_optional("attacker_score"),
+        defender_score=war.get_float_optional("defender_score"),
+        war_goal_type=goal.get("type"),
+        casus_belli=goal.get("casus_belli"),
+        war_goal_province=goal.get("province"),
+        war_goal_tag=goal.get("tag"),
+        occupied_provinces=occupied,
+        battles=battles,
+    )
+
+
+def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNode]]:
+    if history is None:
+        return []
+    items: list[tuple[str, ObjectNode]] = []
+    for key, val in history.values.items():
+        if isinstance(val, ObjectNode):
+            items.append((key, val))
+    for key, vals in history.multi.items():
+        for val in vals:
+            if isinstance(val, ObjectNode):
+                items.append((key, val))
+    return items
+
+
+def _sides_from_history(history: ObjectNode | None) -> tuple[list[str], list[str]]:
+    """从 history 的 add_/rem_ attacker/defender 还原当前参战方。"""
+    attackers: set[str] = set()
+    defenders: set[str] = set()
+    for _date, block in _iter_history_blocks(history):
+        for raw in block.get_list("add_attacker"):
+            t = str(raw).strip('"')
+            if t and t not in {"yes", "no"}:
+                attackers.add(t)
+                defenders.discard(t)
+        for raw in block.get_list("add_defender"):
+            t = str(raw).strip('"')
+            if t and t not in {"yes", "no"}:
+                defenders.add(t)
+                attackers.discard(t)
+        for raw in block.get_list("rem_attacker"):
+            attackers.discard(str(raw).strip('"'))
+        for raw in block.get_list("rem_defender"):
+            defenders.discard(str(raw).strip('"'))
+    return sorted(attackers), sorted(defenders)
+
+
+def _participant_score_fields(node: ObjectNode) -> tuple[float | None, float | None]:
+    """返回 (显式战分, 贡献度 value)。
+
+    真档 participants.value 多为参战贡献；显式战分键为 warscore / war_score。
+    若仅有 value 且后续由战争级 score 覆盖，则 value 记为 contribution。
+    """
+    explicit: float | None = None
+    for key in ("warscore", "war_score"):
+        if node.has(key):
+            explicit = node.get_float_optional(key)
+            break
+    contribution = node.get_float_optional("value")
+    return explicit, contribution
+
+
+def _parse_participants(
+    war: ObjectNode,
+    attackers: list[str],
+    defenders: list[str],
+) -> list[WarParticipant]:
+    participants: list[WarParticipant] = []
+    seen: set[str] = set()
+
+    def add(tag: str, node: ObjectNode) -> None:
+        if not tag or tag in seen:
+            return
+        seen.add(tag)
+        side: str = "attackers" if tag in attackers else "defenders"
+        side_s = node.get_str("side")
+        if side_s in {"attackers", "defenders", "attacker", "defender"}:
+            side = "attackers" if side_s.startswith("attack") else "defenders"
+        explicit, contribution = _participant_score_fields(node)
+        # 有符号 value（任一侧为负）时视为战分而非纯贡献
+        signed_value = False
+        if explicit is None and contribution is not None:
+            # 延迟：调用方在收集完后再判定；此处先记下
+            pass
+        warscore = explicit if explicit is not None else 0.0
+        known = explicit is not None
+        participants.append(
+            WarParticipant(
+                tag=tag,
+                side=side,  # type: ignore[arg-type]
+                warscore=float(warscore),
+                warscore_known=known,
+                contribution=contribution,
+                # stash raw value for signed pass — use contribution field
             )
         )
-    return wars
+        # 暂存：若无 explicit，把 contribution 也写入以便二次判定
+        if not known and contribution is not None:
+            participants[-1].warscore = float(contribution)
+
+    # 真档：重复键 participants={ value= tag= }
+    for node in war.all_objects("participants"):
+        tag = node.get_str("tag")
+        if tag:
+            add(tag, node)
+            continue
+        # 少见：participants 下挂 TAG={...}
+        for key, val in node.values.items():
+            if isinstance(val, ObjectNode) and len(key) == 3 and key.isalnum():
+                add(key, val)
+
+    # 合成样例：participants={ TEU={ warscore=42 } } 单对象
+    part_obj = war.get_object("participants")
+    if part_obj is not None and not war.all_objects("participants"):
+        for key, val in part_obj.values.items():
+            if isinstance(val, ObjectNode) and len(key) == 3 and key.isalnum():
+                add(key, val)
+    # 列表形态 participants={ { tag= value= } { ... } }
+    for item in war.get_list("participants"):
+        if isinstance(item, ObjectNode):
+            tag = item.get_str("tag")
+            if tag:
+                add(tag, item)
+
+    # 若多个参战 value 出现负数 → 按有符号战分处理
+    values = [p.contribution for p in participants if p.contribution is not None]
+    if values and any(v < 0 for v in values):
+        for p in participants:
+            if not p.warscore_known and p.contribution is not None:
+                p.warscore = float(p.contribution)
+                p.warscore_known = True
+
+    return participants
+
+
+def _parse_war_goal(
+    war: ObjectNode, history: ObjectNode | None
+) -> dict[str, str | int | None]:
+    out: dict[str, str | int | None] = {
+        "type": None,
+        "casus_belli": None,
+        "province": None,
+        "tag": None,
+    }
+    for key in _WAR_GOAL_KEYS:
+        node = war.get_object(key)
+        if node is not None:
+            out["type"] = node.get_str("type") or key
+            out["casus_belli"] = node.get_str("casus_belli") or None
+            out["province"] = node.get_int_optional("province")
+            out["tag"] = node.get_str("tag") or None
+            return out
+    for _date, block in _iter_history_blocks(history):
+        wg = block.get_object("war_goal")
+        if wg is None:
+            continue
+        out["type"] = wg.get_str("type") or None
+        out["casus_belli"] = wg.get_str("casus_belli") or None
+        out["province"] = wg.get_int_optional("province")
+        out["tag"] = wg.get_str("tag") or None
+        return out
+    return out
+
+
+def _parse_battles(history: ObjectNode | None) -> list[WarBattle]:
+    battles: list[WarBattle] = []
+    for date, block in _iter_history_blocks(history):
+        for battle in block.all_objects("battle"):
+            battles.append(_battle_from_node(date, battle))
+        b = block.get_object("battle")
+        if b is not None and not block.all_objects("battle"):
+            battles.append(_battle_from_node(date, b))
+    # 重大：按双方损失合计降序，最多保留 5 场
+    def loss_key(b: WarBattle) -> float:
+        return (b.attacker_losses or 0) + (b.defender_losses or 0)
+
+    battles.sort(key=loss_key, reverse=True)
+    return battles[:5]
+
+
+def _battle_from_node(date: str, battle: ObjectNode) -> WarBattle:
+    att = battle.get_object("attacker")
+    defe = battle.get_object("defender")
+    result = battle.get("result")
+    attacker_won: bool | None
+    if isinstance(result, bool):
+        attacker_won = result
+    elif result in {"yes", "no"}:
+        attacker_won = result == "yes"
+    else:
+        attacker_won = None
+    return WarBattle(
+        name=battle.get_str("name") or "",
+        date=date,
+        location=battle.get_int_optional("location"),
+        attacker_won=attacker_won,
+        attacker_tag=att.get_str("country") if att else None,
+        defender_tag=defe.get_str("country") if defe else None,
+        attacker_losses=att.get_float_optional("losses") if att else None,
+        defender_losses=defe.get_float_optional("losses") if defe else None,
+    )
+
+
+def _count_occupied_provinces(
+    root: ObjectNode, attackers: list[str], defenders: list[str]
+) -> int | None:
+    """owner≠controller 且分属交战双方时计为占领；档内无 controller 则返回 None。"""
+    provinces = root.get_object("provinces")
+    if provinces is None or not attackers or not defenders:
+        return None
+    att, defe = set(attackers), set(defenders)
+    occupied = 0
+    saw_controller = False
+    for _key, node in provinces.values.items():
+        if not isinstance(node, ObjectNode):
+            continue
+        owner = node.get_str("owner")
+        controller = node.get_str("controller")
+        if not controller:
+            continue
+        saw_controller = True
+        if not owner or owner == controller:
+            continue
+        if (owner in defe and controller in att) or (owner in att and controller in defe):
+            occupied += 1
+    return occupied if saw_controller else None

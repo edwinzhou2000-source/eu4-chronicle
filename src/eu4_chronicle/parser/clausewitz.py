@@ -30,6 +30,9 @@ class ObjectNode:
             return default
         return str(value).strip('"')
 
+    def has(self, key: str) -> bool:
+        return key in self.values or key in self.lists or key in self.multi
+
     def get_float(self, key: str, default: float = 0.0) -> float:
         value = self.get(key, default)
         try:
@@ -37,8 +40,21 @@ class ObjectNode:
         except (TypeError, ValueError):
             return default
 
+    def get_float_optional(self, key: str) -> float | None:
+        if key not in self.values:
+            return None
+        value = self.values[key]
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def get_int(self, key: str, default: int = 0) -> int:
         return int(self.get_float(key, float(default)))
+
+    def get_int_optional(self, key: str) -> int | None:
+        f = self.get_float_optional(key)
+        return int(f) if f is not None else None
 
     def get_object(self, key: str) -> ObjectNode | None:
         value = self.get(key)

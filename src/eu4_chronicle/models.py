@@ -41,6 +41,21 @@ class WarParticipant(BaseModel):
     tag: str
     side: Literal["attackers", "defenders"]
     warscore: float = 0.0
+    # 档内显式战分（warscore / war_score / 有符号 value）；贡献度另存 contribution。
+    # 默认 True 以兼容手工构造；解析贡献度-only 时显式置 False。
+    warscore_known: bool = True
+    contribution: float | None = None
+
+
+class WarBattle(BaseModel):
+    name: str = ""
+    date: str = ""
+    location: int | None = None
+    attacker_won: bool | None = None
+    attacker_tag: str | None = None
+    defender_tag: str | None = None
+    attacker_losses: float | None = None
+    defender_losses: float | None = None
 
 
 class WarState(BaseModel):
@@ -48,6 +63,32 @@ class WarState(BaseModel):
     attackers: list[str] = Field(default_factory=list)
     defenders: list[str] = Field(default_factory=list)
     participants: list[WarParticipant] = Field(default_factory=list)
+    # 真档战争级战分（Osallek / Clausewitz：defender_score / attacker_score）
+    attacker_score: float | None = None
+    defender_score: float | None = None
+    war_goal_type: str | None = None
+    casus_belli: str | None = None
+    war_goal_province: int | None = None
+    war_goal_tag: str | None = None
+    occupied_provinces: int | None = None
+    battles: list[WarBattle] = Field(default_factory=list)
+
+    def score_for(self, tag: str) -> float | None:
+        """玩家/国家视角战争分数；优先战争级字段，其次参战国显式战分。"""
+        if tag in self.attackers:
+            if self.defender_score is not None:
+                return -float(self.defender_score)
+            if self.attacker_score is not None:
+                return float(self.attacker_score)
+        elif tag in self.defenders:
+            if self.defender_score is not None:
+                return float(self.defender_score)
+            if self.attacker_score is not None:
+                return -float(self.attacker_score)
+        for p in self.participants:
+            if p.tag == tag and p.warscore_known:
+                return float(p.warscore)
+        return None
 
 
 class GameState(BaseModel):

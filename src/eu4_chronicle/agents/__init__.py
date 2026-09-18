@@ -185,15 +185,15 @@ def _title_hook(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
             defenders=primary.defenders,
         )
         if primary.tier == "decisive":
-            return f"{player}战报：{wlabel}，优势在握（战分 {primary.player_score:.0f}）"
+            return f"{player}战报：{wlabel}，优势在握（战分 {primary.player_score:+.0f}）"
         if primary.tier == "advantage":
-            return f"{player}战报：{wlabel}，战局偏我（战分 {primary.player_score:.0f}）"
+            return f"{player}战报：{wlabel}，战局偏我（战分 {primary.player_score:+.0f}）"
         if primary.tier == "contested":
-            return f"{player}战报：{wlabel}，双方胶着（战分 {primary.player_score:.0f}）"
+            return f"{player}战报：{wlabel}，双方胶着（战分 {primary.player_score:+.0f}）"
         if primary.tier == "disadvantage":
-            return f"{player}战报：{wlabel}，战分落后（战分 {primary.player_score:.0f}）"
+            return f"{player}战报：{wlabel}，战分落后（战分 {primary.player_score:+.0f}）"
         if primary.tier == "collapse":
-            return f"{player}战报：{wlabel}，局势危急（战分 {primary.player_score:.0f}）"
+            return f"{player}战报：{wlabel}，局势危急（战分 {primary.player_score:+.0f}）"
         return f"{player}战报：{wlabel}"
 
     if vassals:
@@ -261,11 +261,14 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
         )
         if s.score_known:
             facts.append(
-                f"战争「{wlabel}」玩家战分 {s.player_score:.0f}，"
+                f"战争「{wlabel}」玩家战分 {s.player_score:+.0f}，"
                 f"{tier_phrase(s.tier, score=s.player_score)}"
             )
         else:
             facts.append(f"战争「{wlabel}」仍在进行（档内未解析到玩家战分）")
+        detail_bits = _war_standing_detail_bits(s, names)
+        if detail_bits:
+            facts.append("；".join(detail_bits))
 
     # 外交：收附优先；断盟仅当未同时收附
     vassals = vassalized_tags(diff.events, diff.player) if diff.player else set()
@@ -328,6 +331,36 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
     return "".join(parts)
 
 
+def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
+    """战争目标 / 占领 / 战役等档内细节（有则写）。"""
+    bits: list[str] = []
+    if s.war_goal_type or s.casus_belli:
+        goal = s.war_goal_type or "未知目标"
+        cb = f"（CB {s.casus_belli}）" if s.casus_belli else ""
+        prov = ""
+        if s.war_goal_province is not None:
+            prov = f"，目标省 {names.province(s.war_goal_province)}"
+        bits.append(f"战争目标 {goal}{cb}{prov}")
+    if s.occupied_provinces is not None:
+        bits.append(f"交战占领省份约 {s.occupied_provinces} 处")
+    for b in (s.major_battles or [])[:2]:
+        bname = b.get("name") or "某地"
+        won = b.get("attacker_won")
+        if won is True:
+            outcome = "攻方胜"
+        elif won is False:
+            outcome = "守方胜"
+        else:
+            outcome = "胜负未载"
+        losses_a = b.get("attacker_losses")
+        losses_d = b.get("defender_losses")
+        loss_bit = ""
+        if losses_a is not None or losses_d is not None:
+            loss_bit = f"（损 {losses_a or 0:.0f}/{losses_d or 0:.0f}）"
+        bits.append(f"战役「{bname}」{outcome}{loss_bit}")
+    return bits
+
+
 def _mock_war_section(
     diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
 ) -> str:
@@ -353,10 +386,13 @@ def _mock_war_section(
         if s.score_known:
             lines.append(
                 f"- 战争「{wlabel}」：{att} vs {defe}；"
-                f"玩家战分 {s.player_score:.0f}——{tier_phrase(s.tier, score=s.player_score)}"
+                f"玩家战分 {s.player_score:+.0f}——"
+                f"{tier_phrase(s.tier, score=s.player_score)}"
             )
         else:
             lines.append(f"- 战争「{wlabel}」：{att} vs {defe}；档内未解析到玩家战分")
+        for bit in _war_standing_detail_bits(s, names):
+            lines.append(f"  - {bit}")
     for e in army[:6]:
         lines.append(f"- {e.summary}")
 
@@ -364,17 +400,17 @@ def _mock_war_section(
         primary = wars.primary
         assert primary is not None
         if primary.tier == "decisive":
-            judge = f"战分 {primary.player_score:.0f}，优势在握，可推进和约或巩固占领。"
+            judge = f"战分 {primary.player_score:+.0f}，优势在握，可推进和约或巩固占领。"
         elif primary.tier == "advantage":
-            judge = f"战分 {primary.player_score:.0f}，战局偏我，继续扩大占领优势。"
+            judge = f"战分 {primary.player_score:+.0f}，战局偏我，继续扩大占领优势。"
         elif primary.tier == "contested":
-            judge = f"战分 {primary.player_score:.0f}，双方胶着，胜负未定。"
+            judge = f"战分 {primary.player_score:+.0f}，双方胶着，胜负未定。"
         elif primary.tier == "disadvantage":
-            judge = f"战分 {primary.player_score:.0f}，战分落后，宜收缩战线或求和。"
+            judge = f"战分 {primary.player_score:+.0f}，战分落后，宜收缩战线或求和。"
         elif primary.tier == "collapse":
-            judge = f"战分 {primary.player_score:.0f}，局势危急。"
+            judge = f"战分 {primary.player_score:+.0f}，局势危急。"
         else:
-            judge = "战分未知，仅列参战方与编制事实，不作胜负判断。"
+            judge = "档内未解析到玩家战分，仅列参战方与编制事实，不作胜负判断。"
         if ae.warn_coalition:
             judge += f" 当前 AE 偏高（约 {ae.max_to:.0f}），忌另开第二战场。"
         lines.append(f"- **研判**：{judge}")
