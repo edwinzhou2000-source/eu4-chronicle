@@ -290,13 +290,15 @@ def _extract_province_names(root: ObjectNode) -> dict[int, str]:
 def _extract_wars(root: ObjectNode) -> list[WarState]:
     """抽取进行中战争。
 
-    真档形态（Clausewitz / Osallek）：
+    真档形态（Clausewitz；TEU Naklo 档钉死）：
       active_war={ ... }          # 根级重复键
       attackers={ TEU ... }
       defenders={ POL ... }
-      participants={ value=.. tag="TEU" ... }  # 重复键；value 多为贡献度
-      defender_score= / attacker_score=       # Osallek：总战分视角（优先 defender_score）
-      # |值|>25 与 ≤25 同存时：大=总、小=ticking；参战国 war_score 可覆盖 ≤25 的战争级
+      participants={ value=.. tag="TEU" war_score=0 ... }  # value=贡献度；war_score≈0 勿当总战分
+      last_warscore_quarter=      # **总战分**（季度快照；可能与 UI 实时略差）
+      last_warscore_year=         # 年快照；quarter 缺失时回退
+      attacker_score=             # **ticking**（攻方）；禁止当总战分
+      defender_score=             # 相应侧；无 quarter 时可读作总战分（Osallek）
       history={ DATE={ add_attacker=... } battle={...} war_goal={...} }
 
     合成样例仍支持 active_wars={ war={ participants={ TAG={ warscore= } } } }。
@@ -409,6 +411,8 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
         participants=participants,
         attacker_score=war.get_float_optional("attacker_score"),
         defender_score=war.get_float_optional("defender_score"),
+        last_warscore_quarter=war.get_float_optional("last_warscore_quarter"),
+        last_warscore_year=war.get_float_optional("last_warscore_year"),
         raw_score_fields=raw_scores,
         war_goal_type=goal.get("type"),
         casus_belli=goal.get("casus_belli"),
@@ -427,7 +431,9 @@ def format_war_score_dump(state: GameState, *, player_only: bool = True) -> str:
     lines: list[str] = [
         f"# dump-war-scores  date={state.date}  player={player or '?'}",
         f"# source={state.source_path or '(text)'}",
-        "# 请把输出整段贴回；优先对照 attacker_score / defender_score / participants.*.war_score|value",
+        "# 映射：total ← last_warscore_quarter（缺则 year / 非零 war_score / defender_score）；"
+        "ticking ← attacker_score（禁止当 total）",
+        "# participants.value=贡献度；participants.war_score≈0 不作 UI 总战分",
         "",
     ]
     wars = state.wars
@@ -453,18 +459,24 @@ def format_war_score_dump(state: GameState, *, player_only: bool = True) -> str:
         lines.append(f"attackers={w.attackers}")
         lines.append(f"defenders={w.defenders}")
         lines.append(f"player_side={side}")
+        lines.append(f"last_warscore_quarter={w.last_warscore_quarter}")
+        lines.append(f"last_warscore_year={w.last_warscore_year}")
         lines.append(f"attacker_score={w.attacker_score}")
         lines.append(f"defender_score={w.defender_score}")
         lines.append(
-            f"resolved_total_attacker={w.total_attacker_score}  source={w.total_score_source}"
+            f"resolved_total_attacker={w.total_attacker_score}"
+            f"  source={w.total_score_source}"
+            f"  # ← UI 总战分（主展示）"
         )
         lines.append(
-            f"resolved_ticking_attacker={w.ticking_attacker_score}  source={w.ticking_score_source}"
+            f"resolved_ticking_attacker={w.ticking_attacker_score}"
+            f"  source={w.ticking_score_source}"
+            f"  # ← 战争目标 ticking（非总战分）"
         )
         if player:
-            lines.append(f"score_for(player)={w.score_for(player)}")
-            lines.append(f"ticking_for(player)={w.ticking_for(player)}")
-        lines.append("participants:")
+            lines.append(f"score_for(player)={w.score_for(player)}  # 玩家视角总战分")
+            lines.append(f"ticking_for(player)={w.ticking_for(player)}  # 玩家视角 ticking")
+        lines.append("participants:  # value=贡献度；war_score≈0 勿当总战分")
         for p in w.participants:
             lines.append(
                 f"  - tag={p.tag} side={p.side} warscore_known={p.warscore_known}"

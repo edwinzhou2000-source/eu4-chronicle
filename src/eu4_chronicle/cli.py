@@ -117,6 +117,8 @@ def analyze(
                         continue
                 bits = [
                     f"war={w.name!r}",
+                    f"last_warscore_quarter={w.last_warscore_quarter}",
+                    f"last_warscore_year={w.last_warscore_year}",
                     f"attacker_score={w.attacker_score}",
                     f"defender_score={w.defender_score}",
                     f"total_src={w.total_score_source}",

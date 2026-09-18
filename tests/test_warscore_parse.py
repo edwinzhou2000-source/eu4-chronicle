@@ -11,6 +11,7 @@ from eu4_chronicle.parser import parse_save_text
 from eu4_chronicle.warscore import assess_player_wars
 
 # 贴近真档：重复 participants={ value= tag= } + defender_score + history
+# （无 last_warscore_quarter 时回退 Osallek defender_score）
 REALISTIC_TEU_WAR = """
 date="1454.6.1"
 player="TEU"
@@ -97,11 +98,12 @@ active_war={
 }
 """
 
-# 贴近真档失败模式：仅有 defender_score=-17（Osallek 会当成总战分→胶着），
-# 总战分 68 在 participants.war_score（1.38+ / eu4-war-explorer 提及的显式键）。
-# 上一刀错误假设 attacker_score=68 + defender_score=-17 在用户真档上不成立。
-TOTAL68_TICKING17_WAR = """
-date="1454.6.1"
+# 用户真档 dump 钉死结构（Teutonic Conquest of Naklo，玩家攻方 TEU）：
+#   last_warscore_quarter=64.0 → 总战分（与 UI ~68 接近但不等：季度快照）
+#   attacker_score=16.8 → ticking（≈ UI +17）
+#   defender_score=None；participants.war_score=0；value=贡献度
+NAKLO_TRUE_DUMP_WAR = """
+date="1454.11.18"
 player="TEU"
 ironman=no
 countries={
@@ -113,6 +115,7 @@ countries={
     navy_size=28
   }
   POL={ name="Poland" owned_provinces={ 262 254 } }
+  LIV={ name="Livonian Order" owned_provinces={ 37 } }
 }
 provinces={
   43={ name="Danzig" owner="TEU" controller="TEU" }
@@ -122,7 +125,7 @@ provinces={
   254={ name="Poznan" owner="POL" controller="TEU" }
 }
 active_war={
-  name="Teutonic Conquest of Notec"
+  name="Teutonic Conquest of Naklo"
   history={
     1448.3.1={ add_attacker="TEU" }
     1448.3.1={ add_defender="POL" }
@@ -140,20 +143,27 @@ active_war={
     province=2963
   }
   participants={
-    value=71.5
+    value=151.8
     tag="TEU"
-    war_score=68
+    war_score=0.0
   }
   participants={
-    value=28.5
+    value=318.4
     tag="POL"
-    war_score=-68
+    war_score=0.0
+  }
+  participants={
+    value=40.0
+    tag="LIV"
+    war_score=0.0
   }
   original_attacker="TEU"
   original_defender="POL"
-  attackers={ TEU }
+  attackers={ TEU LIV }
   defenders={ POL }
-  defender_score=-17.0
+  attacker_score=16.8
+  last_warscore_quarter=64.0
+  last_warscore_year=48.0
 }
 """
 
@@ -207,37 +217,88 @@ def test_parse_realistic_active_war_defender_score():
     assert war.battles[0].attacker_won is True
 
 
-def test_total_68_vs_ticking_17_field_split():
-    """总战分来自 participants.war_score=68；ticking 来自 defender_score=-17。"""
-    war = parse_save_text(TOTAL68_TICKING17_WAR).wars[0]
-    assert war.attacker_score is None
-    assert war.defender_score == -17.0
-    assert war.total_score_source.startswith("participants.")
-    assert war.ticking_score_source == "defender_score"
-    assert war.score_for("TEU") == 68.0
-    assert war.ticking_for("TEU") == 17.0
-    assert war.war_goal_type == "take_claim"
-    assert war.casus_belli == "cb_conquest"
-    assert war.war_goal_province == 2963
-    # value 仍为贡献度
+def test_true_dump_quarter_64_ticking_attacker_16_8():
+    """真档：total ← last_warscore_quarter=64；ticking ← attacker_score=16.8。"""
+    war = parse_save_text(NAKLO_TRUE_DUMP_WAR).wars[0]
+    assert war.attacker_score == 16.8
+    assert war.defender_score is None
+    assert war.last_warscore_quarter == 64.0
+    assert war.last_warscore_year == 48.0
+    assert war.total_score_source == "last_warscore_quarter"
+    assert war.ticking_score_source == "attacker_score"
+    assert war.score_for("TEU") == 64.0
+    assert war.ticking_for("TEU") == 16.8
+    assert war.score_for("POL") == -64.0
+    assert war.ticking_for("POL") == -16.8
+    # war_score=0 / value=贡献度 不得驱动总战分
     teu_p = next(p for p in war.participants if p.tag == "TEU")
-    assert teu_p.contribution == 71.5
+    assert teu_p.contribution == 151.8
     assert teu_p.warscore_known
-    assert teu_p.warscore == 68.0
-    assert "defender_score" in war.raw_score_fields or any(
-        "defender_score" in k for k in war.raw_score_fields
-    )
+    assert teu_p.warscore == 0.0
+    pol_p = next(p for p in war.participants if p.tag == "POL")
+    assert pol_p.contribution == 318.4
 
 
-def test_war_level_gt25_and_le25_split_without_max_abs_guess():
-    """两战争级同存且一大(>25)一小(≤25)：大=总、小=ticking（不靠盲目 max-abs 选 attacker）。"""
-    text = TOTAL68_TICKING17_WAR
-    text = text.replace("    war_score=68\n", "")
-    text = text.replace("    war_score=-68\n", "")
-    text = text.replace(
-        "  defender_score=-17.0\n",
-        "  attacker_score=17.0\n  defender_score=-68.0\n",
-    )
+def test_attacker_score_never_used_as_total():
+    """仅有 attacker_score 时：作 ticking，不作总战分。"""
+    text = """
+    date="1454.1.1"
+    player="TEU"
+    countries={ TEU={ name="Teutonic Order" } POL={ name="Poland" } }
+    active_war={
+      name="Skirmish"
+      attackers={ TEU }
+      defenders={ POL }
+      participants={ value=50 tag="TEU" war_score=0 }
+      participants={ value=50 tag="POL" war_score=0 }
+      attacker_score=16.8
+    }
+    """
+    war = parse_save_text(text).wars[0]
+    assert war.score_for("TEU") is None
+    assert war.total_score_source is None
+    assert war.ticking_for("TEU") == 16.8
+    assert war.ticking_score_source == "attacker_score"
+
+
+def test_fallback_year_then_defender_when_quarter_missing():
+    """quarter 缺失：year → 总；attacker_score → ticking。"""
+    text = """
+    date="1454.1.1"
+    player="TEU"
+    countries={ TEU={ name="Teutonic Order" } POL={ name="Poland" } }
+    active_war={
+      name="Year Snapshot"
+      attackers={ TEU }
+      defenders={ POL }
+      participants={ value=10 tag="TEU" war_score=0 }
+      participants={ value=10 tag="POL" war_score=0 }
+      attacker_score=12.0
+      last_warscore_year=48.0
+    }
+    """
+    war = parse_save_text(text).wars[0]
+    assert war.score_for("TEU") == 48.0
+    assert war.total_score_source == "last_warscore_year"
+    assert war.ticking_for("TEU") == 12.0
+
+
+def test_war_level_defender_total_and_attacker_ticking():
+    """无 quarter：defender_score 大值=总；attacker_score=ticking。"""
+    text = """
+    date="1454.1.1"
+    player="TEU"
+    countries={ TEU={ name="Teutonic Order" } POL={ name="Poland" } }
+    active_war={
+      name="Split"
+      attackers={ TEU }
+      defenders={ POL }
+      participants={ value=50 tag="TEU" }
+      participants={ value=50 tag="POL" }
+      attacker_score=17.0
+      defender_score=-68.0
+    }
+    """
     war = parse_save_text(text).wars[0]
     assert war.score_for("TEU") == 68.0
     assert war.ticking_for("TEU") == 17.0
@@ -245,8 +306,8 @@ def test_war_level_gt25_and_le25_split_without_max_abs_guess():
     assert war.ticking_score_source == "attacker_score"
 
 
-def test_osallek_prefers_defender_when_both_le25():
-    """两键都 ≤25 时信 Osallek（defender_score），不把另一键猜成总战分。"""
+def test_both_side_scores_le25_attacker_is_ticking_not_total():
+    """两键都 ≤25：总战分仍信 defender_score；attacker_score 只作 ticking。"""
     text = """
     date="1454.1.1"
     player="TEU"
@@ -264,10 +325,11 @@ def test_osallek_prefers_defender_when_both_le25():
     war = parse_save_text(text).wars[0]
     assert war.score_for("TEU") == 17.0
     assert war.total_score_source == "defender_score"
-    assert war.ticking_for("TEU") is None
+    assert war.ticking_for("TEU") == 12.0
+    assert war.ticking_score_source == "attacker_score"
 
 
-def test_participant_war_score_as_total_when_war_level_is_ticking():
+def test_nonzero_participant_war_score_fallback():
     text = """
     date="1454.1.1"
     player="TEU"
@@ -279,32 +341,36 @@ def test_participant_war_score_as_total_when_war_level_is_ticking():
       participants={
         value=80
         tag="TEU"
-        war_score=68
+        war_score=55
       }
       participants={
         value=20
         tag="POL"
-        war_score=-68
+        war_score=-55
       }
-      defender_score=-17.0
+      attacker_score=10.0
     }
     """
     war = parse_save_text(text).wars[0]
-    assert war.score_for("TEU") == 68.0
-    assert war.ticking_for("TEU") == 17.0
+    assert war.score_for("TEU") == 55.0
+    assert war.ticking_for("TEU") == 10.0
     assert war.total_score_source.startswith("participants.")
-    assert war.ticking_score_source == "defender_score"
+    assert war.ticking_score_source == "attacker_score"
 
 
-def test_dump_war_scores_includes_raw_fields():
+def test_dump_war_scores_labels_total_and_ticking():
     from eu4_chronicle.parser import format_war_score_dump, parse_save_text
 
-    state = parse_save_text(TOTAL68_TICKING17_WAR, source_path="synthetic.eu4")
+    state = parse_save_text(NAKLO_TRUE_DUMP_WAR, source_path="synthetic.eu4")
     dump = format_war_score_dump(state)
-    assert "defender_score=-17.0" in dump or "defender_score=-17" in dump
-    assert "war_score" in dump
-    assert "resolved_total_attacker=68" in dump
-    assert "resolved_ticking_attacker=17" in dump
+    assert "last_warscore_quarter=64" in dump
+    assert "attacker_score=16.8" in dump
+    assert "resolved_total_attacker=64" in dump
+    assert "source=last_warscore_quarter" in dump
+    assert "UI 总战分" in dump
+    assert "resolved_ticking_attacker=16.8" in dump
+    assert "source=attacker_score" in dump
+    assert "战争目标 ticking" in dump
     assert "raw_score_fields:" in dump
 
 
@@ -393,17 +459,18 @@ def test_pipeline_mock_contains_plus_68_and_decisive_phrase():
     assert "占领" in war or "Naklo" in war or "战争目标" in war
 
 
-def test_pipeline_total_68_not_ticking_17_as_contested():
-    """成稿主分数为 +68；不得出现「胶着/+17 当总战分」。"""
+def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
+    """成稿主分数为 +64（≥50→优势在握）；ticking +17 另列，不得写胶着。"""
     prev = parse_save_text(PREV_NO_WAR)
-    curr = parse_save_text(TOTAL68_TICKING17_WAR)
+    curr = parse_save_text(NAKLO_TRUE_DUMP_WAR)
     raw = diff_states(prev, curr)
     filtered = filter_diff(raw, prev=prev, curr=curr)
     war_ev = next(e for e in filtered.events if e.kind == "war_started")
-    assert war_ev.detail.get("player_warscore") == 68.0
-    assert war_ev.detail.get("player_ticking_warscore") == 17.0
-    assert str(war_ev.detail.get("total_score_source", "")).startswith("participants.")
-    assert war_ev.detail.get("ticking_score_source") == "defender_score"
+    assert war_ev.detail.get("player_warscore") == 64.0
+    assert abs(float(war_ev.detail.get("player_ticking_warscore")) - 16.8) < 1e-6
+    assert war_ev.detail.get("total_score_source") == "last_warscore_quarter"
+    assert war_ev.detail.get("ticking_score_source") == "attacker_score"
+    assert war_ev.detail.get("last_warscore_quarter") == 64.0
     assert war_ev.detail.get("war_goal_type") == "take_claim"
     assert war_ev.detail.get("war_goal_province") == 2963
     assert war_ev.detail.get("raw_score_fields")
@@ -413,17 +480,18 @@ def test_pipeline_total_68_not_ticking_17_as_contested():
     ae = assess_player_ae(readable, country_label=names.country)
     wars = assess_player_wars(readable)
     assert wars.primary is not None
-    assert wars.primary.player_score == 68
-    assert wars.primary.ticking_score == 17
+    assert wars.primary.player_score == 64
+    assert wars.primary.ticking_score is not None
+    assert abs(wars.primary.ticking_score - 16.8) < 1e-6
+    assert f"{wars.primary.ticking_score:+.0f}" == "+17"  # 成稿四舍五入
     assert wars.primary.tier == "decisive"
 
     md = _mock_editor(readable, names, ae)
     war = _mock_war_section(readable, names, ae, heading=False)
-    assert "+68" in md
+    assert "+64" in md
     assert "优势在握" in md or "基本打赢" in md
     assert "双方胶着" not in md
     assert "胶着（战分 +17）" not in md
-    # ticking 可另行列出，但不得驱动标题胶着
     assert "ticking" in war
     assert "+17" in war
     assert "夺取宣称" in war
@@ -431,4 +499,4 @@ def test_pipeline_total_68_not_ticking_17_as_contested():
     assert "诺泰奇" in war
     title_line = md.split("\n")[0]
     assert "双方胶着" not in title_line
-    assert "+17" not in title_line or "+68" in title_line
+    assert "+17" not in title_line or "+64" in title_line

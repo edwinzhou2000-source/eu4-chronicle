@@ -325,6 +325,10 @@ def _war_detail_extras(w: WarState, player: str = "") -> dict:
         extras["war_goal_tag"] = w.war_goal_tag
     if w.occupied_provinces is not None:
         extras["occupied_provinces"] = w.occupied_provinces
+    if w.last_warscore_quarter is not None:
+        extras["last_warscore_quarter"] = w.last_warscore_quarter
+    if w.last_warscore_year is not None:
+        extras["last_warscore_year"] = w.last_warscore_year
     if w.attacker_score is not None:
         extras["attacker_score"] = w.attacker_score
     if w.defender_score is not None:

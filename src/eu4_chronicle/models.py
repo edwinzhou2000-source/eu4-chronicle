@@ -67,9 +67,11 @@ class WarState(BaseModel):
     attackers: list[str] = Field(default_factory=list)
     defenders: list[str] = Field(default_factory=list)
     participants: list[WarParticipant] = Field(default_factory=list)
-    # 真档原始键（Osallek：通常为总战分的攻/守视角，未必同存）
-    attacker_score: float | None = None
-    defender_score: float | None = None
+    # 真档原始键
+    attacker_score: float | None = None  # 攻方侧 score → ticking（勿当总战分）
+    defender_score: float | None = None  # 守方侧 score；无 quarter 时可读作总战分（Osallek）
+    last_warscore_quarter: float | None = None  # 真档钉死：主展示总战分（季度快照）
+    last_warscore_year: float | None = None  # 年快照；quarter 缺失时回退
     # 解析后：主展示用总战分；ticking 另存，不得当总战分
     total_attacker_score: float | None = None
     ticking_attacker_score: float | None = None
@@ -92,19 +94,27 @@ class WarState(BaseModel):
                 return float(total)
             if tag in self.defenders:
                 return -float(total)
-        # 兼容：未跑 resolve 时回退 Osallek 单字段语义
+        # 未跑 resolve 时的回退：优先季度快照；勿用 attacker_score
+        quarter = self.last_warscore_quarter
+        if quarter is not None:
+            if tag in self.attackers:
+                return float(quarter)
+            if tag in self.defenders:
+                return -float(quarter)
+        year = self.last_warscore_year
+        if year is not None:
+            if tag in self.attackers:
+                return float(year)
+            if tag in self.defenders:
+                return -float(year)
         if tag in self.attackers:
             if self.defender_score is not None:
                 return -float(self.defender_score)
-            if self.attacker_score is not None:
-                return float(self.attacker_score)
         elif tag in self.defenders:
             if self.defender_score is not None:
                 return float(self.defender_score)
-            if self.attacker_score is not None:
-                return -float(self.attacker_score)
         for p in self.participants:
-            if p.tag == tag and p.warscore_known:
+            if p.tag == tag and p.warscore_known and abs(p.warscore) > 1e-6:
                 return float(p.warscore)
         return None
 
@@ -122,105 +132,97 @@ class WarState(BaseModel):
     def resolve_total_and_ticking(self) -> None:
         """拆出 UI 总战分与 ticking。
 
-        依据（勿再用「两键里绝对值更大的当总战分」——真档上该启发式失败）：
-        - Osallek ActiveWar.getScore：优先 defender_score（攻方视角取负），否则
-          attacker_score；二者是同一总战分的视角，不是 total vs ticking。
-        - 参战国显式 war_score / warscore（eu4-war-explorer 提及 1.38+）若存在且
-          |值| 明显大于战争级 ≤25 的字段，则显式战分=总战分，战争级小值=ticking。
-        - |值|>25 的字段不可能是 ticking（WARGOAL_MAX_BONUS=25）。
-        - participants.value 仍为贡献度，不作 UI 总战分。
+        真档钉死（Teutonic Conquest of Naklo，玩家攻方 TEU）：
+        - 总战分：优先 ``last_warscore_quarter``（攻方为正）。可能是季度快照，
+          与 UI 实时值略有偏差（例：档内 64 vs UI ~68）。
+        - ticking：``attacker_score``（攻方）或相应侧 score；**禁止**当总战分。
+        - ``participants.value`` 为贡献度；``war_score≈0`` 不作 UI 总战分。
+        - quarter 缺失时回退：``last_warscore_year`` → 非零参战国 war_score →
+          Osallek ``defender_score``（攻方取负）。永不回退到 ``attacker_score``。
         """
+        raw = self.raw_score_fields
+
+        def _raw(key: str) -> float | None:
+            if key in raw:
+                return float(raw[key])
+            return None
+
+        quarter = self.last_warscore_quarter
+        if quarter is None:
+            quarter = _raw("last_warscore_quarter")
+            if quarter is not None:
+                self.last_warscore_quarter = quarter
+        year = self.last_warscore_year
+        if year is None:
+            year = _raw("last_warscore_year")
+            if year is not None:
+                self.last_warscore_year = year
+
+        # 非零参战国显式战分（攻方视角）；忽略 ≈0（真档全员 war_score=0）
         part_cands: list[tuple[str, float]] = []
         for p in self.participants:
-            if not p.warscore_known:
+            if not p.warscore_known or abs(p.warscore) <= 1e-6:
                 continue
             if p.tag in self.attackers:
                 part_cands.append((f"participants.{p.tag}.war_score", float(p.warscore)))
             elif p.tag in self.defenders:
                 part_cands.append((f"participants.{p.tag}.war_score", -float(p.warscore)))
 
-        # Osallek 战争级总战分（攻方视角）
-        osallek_src: str | None = None
-        osallek_val: float | None = None
-        if self.defender_score is not None:
-            osallek_src, osallek_val = "defender_score", -float(self.defender_score)
-        elif self.attacker_score is not None:
-            osallek_src, osallek_val = "attacker_score", float(self.attacker_score)
-
-        # 另一战争级键（若同存且与 Osallek 所选不同）
-        other_war: tuple[str, float] | None = None
-        if self.attacker_score is not None and osallek_src != "attacker_score":
-            other_war = ("attacker_score", float(self.attacker_score))
-        elif self.defender_score is not None and osallek_src != "defender_score":
-            other_war = ("defender_score", -float(self.defender_score))
-
         total_src: str | None = None
         total_val: float | None = None
-        ticking_src: str | None = None
-        ticking_val: float | None = None
 
-        def _pick_largest_participant() -> tuple[str, float] | None:
-            if not part_cands:
-                return None
-            return max(part_cands, key=lambda x: abs(x[1]))
-
-        # 1) 参战国显式战分 |v| 更大，且战争级 Osallek |v|≤25 → 显式=总，战争级=ticking
-        best_part = _pick_largest_participant()
-        if (
-            best_part is not None
-            and osallek_val is not None
-            and abs(osallek_val) <= WARGOAL_TICKING_MAX + 1e-6
-            and abs(best_part[1]) > abs(osallek_val) + 1e-6
-        ):
-            total_src, total_val = best_part
-            ticking_src, ticking_val = osallek_src, osallek_val
-        # 2) 两战争级同存：|大|>25 且 |小|≤25 且量级不同 → 大=总、小=ticking
-        #    （不靠「谁的绝对值更大」在两个 ≤25 或两个 >25 之间瞎猜）
-        elif (
-            osallek_val is not None
-            and other_war is not None
-            and abs(osallek_val - other_war[1]) > 1e-6
-        ):
-            a = (osallek_src or "", osallek_val)
-            b = other_war
-            big, small = (a, b) if abs(a[1]) >= abs(b[1]) else (b, a)
-            if abs(big[1]) > WARGOAL_TICKING_MAX + 1e-6 and abs(small[1]) <= WARGOAL_TICKING_MAX + 1e-6:
-                total_src, total_val = big
-                ticking_src, ticking_val = small
-            else:
-                # 同量级或都 ≤25：信 Osallek，不把另一键当 ticking
-                total_src, total_val = osallek_src, osallek_val
-                if best_part is not None and abs(best_part[1]) > abs(total_val) + 1e-6:
-                    # 参战国显式更大时仍可覆盖
-                    if abs(total_val) <= WARGOAL_TICKING_MAX + 1e-6:
-                        ticking_src, ticking_val = total_src, total_val
-                    total_src, total_val = best_part
-        # 3) 仅 Osallek 或仅参战国
-        elif osallek_val is not None:
-            total_src, total_val = osallek_src, osallek_val
-            if (
-                best_part is not None
-                and abs(best_part[1]) > abs(total_val) + 1e-6
-                and abs(total_val) <= WARGOAL_TICKING_MAX + 1e-6
-            ):
-                ticking_src, ticking_val = total_src, total_val
-                total_src, total_val = best_part
-        elif best_part is not None:
-            total_src, total_val = best_part
-
-        # 4) raw_score_fields 中其它 *score* 键（非贡献 value）作补充总战分
-        if total_val is None and self.raw_score_fields:
-            skip = {"attacker_score", "defender_score", "war_direction_quarter", "war_direction_year",
-                    "last_warscore_quarter", "last_warscore_year", "stalled_years"}
+        if quarter is not None:
+            total_src, total_val = "last_warscore_quarter", float(quarter)
+        elif year is not None:
+            total_src, total_val = "last_warscore_year", float(year)
+        elif part_cands:
+            total_src, total_val = max(part_cands, key=lambda x: abs(x[1]))
+        elif self.defender_score is not None:
+            # Osallek：仅有守方侧战争级分时作总战分（攻方视角取负）
+            total_src, total_val = "defender_score", -float(self.defender_score)
+        elif self.raw_score_fields:
+            skip = {
+                "attacker_score",
+                "defender_score",
+                "war_direction_quarter",
+                "war_direction_year",
+                "last_warscore_quarter",
+                "last_warscore_year",
+                "stalled_years",
+            }
             extras = [
-                (k, v)
+                (k, float(v))
                 for k, v in self.raw_score_fields.items()
-                if k not in skip and "contribution" not in k and not k.endswith(".value")
+                if k not in skip
+                and "contribution" not in k
+                and not k.endswith(".value")
+                and "participants" not in k
+                and abs(float(v)) > 1e-6
             ]
             if extras:
-                # 取 |v| 最大者；若像参战国战分则需已知攻守才能定向，这里只在无更好来源时用
-                k, v = max(extras, key=lambda x: abs(x[1]))
-                total_src, total_val = k, float(v)
+                total_src, total_val = max(extras, key=lambda x: abs(x[1]))
+
+        # ticking：攻方 attacker_score；无则用相应侧 defender_score（攻方视角取负），
+        # 且不得与已选总战分同源。
+        ticking_src: str | None = None
+        ticking_val: float | None = None
+        if self.attacker_score is not None:
+            ticking_src, ticking_val = "attacker_score", float(self.attacker_score)
+        elif (
+            self.defender_score is not None
+            and total_src != "defender_score"
+            and abs(float(self.defender_score)) <= WARGOAL_TICKING_MAX + 1e-6
+        ):
+            ticking_src, ticking_val = "defender_score", -float(self.defender_score)
+
+        # 若 ticking 与 total 同值同源，只保留总战分
+        if (
+            ticking_val is not None
+            and total_val is not None
+            and abs(ticking_val - total_val) < 1e-6
+            and ticking_src == total_src
+        ):
+            ticking_src, ticking_val = None, None
 
         self.total_attacker_score = total_val
         self.total_score_source = total_src
