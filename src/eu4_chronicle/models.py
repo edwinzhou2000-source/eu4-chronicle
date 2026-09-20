@@ -27,7 +27,11 @@ class CountryState(BaseModel):
     navy_size: float = 0.0
     # 质量：存档缺则 None，禁止臆造；本轮不做传统/职业度
     discipline: float | None = None
+    # 绝对 land_morale，或真档无裸字段时用 army.regiment.morale 中位数代理
     land_morale: float | None = None
+    land_morale_proxy: bool = False  # True = 来自团级 morale 快照，非 UI 绝对士气
+    # 可选：navy.ship.morale 中位数；双方都有才进舰船士气对比
+    naval_morale: float | None = None
     prestige: float = 0.0
     stability: int = 0
     monarch: Monarch | None = None

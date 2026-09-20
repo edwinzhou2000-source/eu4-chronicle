@@ -289,10 +289,193 @@ active_war={
 """
     state = parse_save_text(text)
     assert state.countries["TEU"].discipline == 1.05
-    # 仅有百分比 land_morale bonus → 无法还原绝对士气
+    # 仅有百分比 land_morale bonus、无团级 morale → 无法还原绝对士气
     assert state.countries["TEU"].land_morale is None
+    assert state.countries["TEU"].land_morale_proxy is False
     assert state.countries["POL"].discipline == 1.0
     assert state.countries["POL"].land_morale == 3.0
+    assert state.countries["POL"].land_morale_proxy is False
+
+
+def test_parse_regiment_morale_median_as_land_morale_proxy():
+    """真档形态：无裸 land_morale，用 army.regiment.morale 中位数作士气代理。"""
+    from eu4_chronicle.parser import parse_save_text
+
+    text = """
+date="1454.1.1"
+player="TEU"
+countries={
+  TEU={
+    name="Teutonic Order"
+    army_size=18
+    manpower=12
+    max_manpower=17
+    technology={ mil_tech=4 }
+    army={
+      regiment={ morale=3.948 type="infantry" }
+      regiment={ morale=3.948 type="cavalry" }
+      regiment={ morale=3.900 type="infantry" }
+    }
+    navy={
+      ship={ morale=2.339 type="light_ship" }
+      ship={ morale=2.339 type="galley" }
+    }
+    modifier={
+      modifier="teu_prussian_tactics"
+      date=1444.11.11
+    }
+    army_tradition=45.2
+  }
+  POL={
+    name="Poland"
+    army_size=28
+    manpower=22
+    max_manpower=30
+    technology={ mil_tech=3 }
+    army={
+      regiment={ morale=3.100 type="infantry" }
+      regiment={ morale=3.200 type="infantry" }
+      regiment={ morale=3.150 type="cavalry" }
+    }
+  }
+}
+active_war={
+  name="Teutonic Conquest of Naklo"
+  attackers={ TEU }
+  defenders={ POL }
+  last_warscore_quarter=68
+  attacker_score=18
+}
+"""
+    state = parse_save_text(text)
+    teu = state.countries["TEU"]
+    pol = state.countries["POL"]
+    # 中位数：3.900, 3.948, 3.948 → 3.948
+    assert teu.land_morale == 3.948
+    assert teu.land_morale_proxy is True
+    assert teu.discipline is None  # 禁止臆造
+    assert teu.naval_morale == 2.339
+    # POL：3.1, 3.15, 3.2 → 3.15
+    assert pol.land_morale == 3.15
+    assert pol.land_morale_proxy is True
+    assert pol.discipline is None
+    assert pol.naval_morale is None
+
+
+def test_regiment_morale_enters_war_military_compare_copy():
+    """双方团级士气代理 → war_tech_compare / mock 成稿必须写入士气≈对比。"""
+    from eu4_chronicle.parser import parse_save_text
+
+    text = """
+date="1454.1.1"
+player="TEU"
+countries={
+  TEU={
+    name="Teutonic Order"
+    army_size=18
+    manpower=12
+    max_manpower=17
+    technology={ mil_tech=4 }
+    army={
+      regiment={ morale=3.948 }
+      regiment={ morale=3.948 }
+    }
+  }
+  POL={
+    name="Poland"
+    army_size=28
+    manpower=22
+    max_manpower=30
+    technology={ mil_tech=3 }
+    army={
+      regiment={ morale=3.100 }
+      regiment={ morale=3.100 }
+    }
+  }
+}
+active_war={
+  name="Teutonic Conquest of Naklo"
+  attackers={ TEU }
+  defenders={ POL }
+  last_warscore_quarter=68
+  attacker_score=18
+}
+"""
+    curr = parse_save_text(text)
+    prev = parse_save_text(
+        text.replace('date="1454.1.1"', 'date="1447.1.1"').replace(
+            "mil_tech=4", "mil_tech=3"
+        )
+    )
+    # prev 也要有士气，否则对比仍成立（从 curr 注入）
+    filtered = filter_diff(diff_states(prev, curr), prev=prev, curr=curr)
+    compares = [e for e in filtered.events if e.kind == "war_tech_compare"]
+    assert len(compares) == 1
+    e = compares[0]
+    assert e.detail["has_both_land_morale"] is True
+    assert e.detail["has_both_discipline"] is False
+    assert e.detail["player_force"]["land_morale"] == 3.948
+    assert e.detail["foe_force"]["land_morale"] == 3.1
+    assert e.detail["player_force"].get("land_morale_proxy") is True
+    assert "士气≈" in e.summary
+    assert "3.948" in e.summary and "3.1" in e.summary
+    assert "纪律" not in e.summary  # 无数值不成稿提纪律
+
+    names = NameResolver.from_states(prev, curr)
+    readable = names.rewrite_diff(filtered)
+    ae = assess_player_ae(readable, country_label=names.country)
+    war = _mock_war_section(readable, names, ae, heading=False)
+    narrative = _mock_narrative_paragraph(readable, names, ae)
+    blob = "\n".join([war, narrative])
+    assert "士气" in war
+    assert "3.948" in blob and "3.1" in blob
+    assert "纪律" not in war
+    brief = make_brief(readable, names=names, ae=ae)
+    assert "士气" in brief
+    assert "勿提纪律" in brief or "禁止" in brief
+
+
+def test_dump_military_tags_teu_pol_no_ghost_tilde():
+    """--tags TEU,POL / POL~ 规范化；命中真 POL，不造幽灵 tag。"""
+    from eu4_chronicle.parser import format_military_dump, parse_save_text
+    from eu4_chronicle.parser.clausewitz import parse_clausewitz_v2
+
+    text = """
+date="1454.1.1"
+player="TEU"
+countries={
+  TEU={
+    name="Teutonic Order"
+    army_size=18
+    technology={ mil_tech=4 }
+    army={ regiment={ morale=3.948 } regiment={ morale=3.948 } }
+  }
+  POL={
+    name="Poland"
+    army_size=28
+    technology={ mil_tech=3 }
+    army={ regiment={ morale=3.2 } }
+  }
+}
+active_war={
+  name="Teutonic Conquest of Naklo"
+  attackers={ TEU }
+  defenders={ POL }
+}
+"""
+    root = parse_clausewitz_v2(text)
+    state = parse_save_text(text)
+    dump = format_military_dump(
+        state, root.get_object("countries"), tags=["TEU", "POL~", "pol"]
+    )
+    assert "# tags=['TEU', 'POL']" in dump or "tags=['TEU', 'POL']" in dump
+    assert "## POL~" not in dump
+    assert "## POL" in dump
+    assert "## TEU" in dump
+    assert "(countries 中无此 TAG)" not in dump
+    assert "regiment_morale_median" in dump
+    assert "parsed_land_morale=3.948" in dump
+    assert "parsed_discipline=None" in dump
 
 
 def test_dump_military_lists_candidates_and_parsed():
@@ -337,6 +520,7 @@ active_war={
     assert "## POL" in dump
     assert "parsed_discipline=None" in dump
     assert "parsed_land_morale=None" in dump
+
 
 def test_sample_byz_force_vs_tur():
     prev = parse_save(SAMPLES / "byz_1444.eu4")

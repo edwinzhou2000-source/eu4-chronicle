@@ -38,12 +38,12 @@ def _tech_levels(state: GameState, tag: str) -> dict[str, int] | None:
     return out
 
 
-def _force_snapshot(state: GameState, tag: str) -> dict[str, float | int] | None:
+def _force_snapshot(state: GameState, tag: str) -> dict[str, float | int | bool] | None:
     """玩家/战争领袖军力快照：军科 + 数量 + discipline/land_morale（有则写）。"""
     country = state.countries.get(tag)
     if country is None:
         return None
-    snap: dict[str, float | int] = {}
+    snap: dict[str, float | int | bool] = {}
     tech = _tech_levels(state, tag)
     if tech:
         snap.update(tech)
@@ -56,11 +56,15 @@ def _force_snapshot(state: GameState, tag: str) -> dict[str, float | int] | None
         snap["discipline"] = float(country.discipline)
     if country.land_morale is not None:
         snap["land_morale"] = float(country.land_morale)
+        if country.land_morale_proxy:
+            snap["land_morale_proxy"] = True
+    if country.naval_morale is not None:
+        snap["naval_morale"] = float(country.naval_morale)
     return snap
 
 
-def _fmt_force_side(tag: str, snap: dict[str, float | int]) -> str:
-    """单侧摘要片段：军科4 陆军x 人力a/b 纪律y 士气z（缺则省略）。"""
+def _fmt_force_side(tag: str, snap: dict[str, float | int | bool]) -> str:
+    """单侧摘要片段：军科4 陆军x 人力a/b 纪律y 士气≈z（缺则省略）。"""
     bits: list[str] = [tag]
     if "mil_tech" in snap:
         bits.append(f"军科{int(snap['mil_tech'])}")
@@ -77,7 +81,10 @@ def _fmt_force_side(tag: str, snap: dict[str, float | int]) -> str:
     if "discipline" in snap:
         bits.append(f"纪律{_fmt_quality(snap['discipline'])}")
     if "land_morale" in snap:
-        bits.append(f"士气{_fmt_quality(snap['land_morale'])}")
+        approx = "≈" if snap.get("land_morale_proxy") else ""
+        bits.append(f"士气{approx}{_fmt_quality(snap['land_morale'])}")
+    if "naval_morale" in snap:
+        bits.append(f"舰船士气{_fmt_quality(snap['naval_morale'])}")
     return " ".join(bits)
 
 
@@ -155,7 +162,7 @@ def _war_tech_compare_event(
 
     snap_tags = [t for t in (att_leader, def_leader, player) if t]
     ordered: list[str] = list(dict.fromkeys(snap_tags))
-    forces: dict[str, dict[str, float | int]] = {}
+    forces: dict[str, dict[str, float | int | bool]] = {}
     levels: dict[str, dict[str, int]] = {}
     for tag in ordered:
         snap = _force_snapshot(curr, tag)
@@ -164,7 +171,7 @@ def _war_tech_compare_event(
             tech_only = {
                 k: int(v)
                 for k, v in snap.items()
-                if k in ("mil_tech", "adm_tech", "dip_tech")
+                if k in ("mil_tech", "adm_tech", "dip_tech") and isinstance(v, (int, float))
             }
             if "mil_tech" in tech_only:
                 levels[tag] = tech_only
@@ -201,6 +208,7 @@ def _war_tech_compare_event(
     )
     has_both_discipline = "discipline" in player_force and "discipline" in foe_force
     has_both_land_morale = "land_morale" in player_force and "land_morale" in foe_force
+    has_both_naval_morale = "naval_morale" in player_force and "naval_morale" in foe_force
     has_both_army = army_signal
     has_both_navy = navy_signal
     has_both_manpower = man_signal
@@ -220,7 +228,9 @@ def _war_tech_compare_event(
     mil_gap = (player_mil - foe_mil) if has_both_mil else None
 
     # summary 中数量仅在有信号时写出，避免 陆军0 噪音；质量仅双方都有才写
-    def _side_for_summary(tag: str, snap: dict[str, float | int]) -> dict[str, float | int]:
+    def _side_for_summary(
+        tag: str, snap: dict[str, float | int | bool]
+    ) -> dict[str, float | int | bool]:
         out = dict(snap)
         if not army_signal:
             out.pop("army_size", None)
@@ -233,6 +243,9 @@ def _war_tech_compare_event(
             out.pop("discipline", None)
         if not has_both_land_morale:
             out.pop("land_morale", None)
+            out.pop("land_morale_proxy", None)
+        if not has_both_naval_morale:
+            out.pop("naval_morale", None)
         return out
 
     summary = (
@@ -268,6 +281,7 @@ def _war_tech_compare_event(
         "has_both_manpower": has_both_manpower,
         "has_both_discipline": has_both_discipline,
         "has_both_land_morale": has_both_land_morale,
+        "has_both_naval_morale": has_both_naval_morale,
     }
     if has_both_mil and player_mil is not None and foe_mil is not None:
         detail["player_mil"] = player_mil

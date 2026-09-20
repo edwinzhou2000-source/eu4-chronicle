@@ -32,7 +32,10 @@ def _fmt_force_side_zh(label: str, snap: dict) -> str:
     if snap.get("discipline") is not None:
         bits.append(f"纪律{_fmt_quality_num(snap['discipline'])}")
     if snap.get("land_morale") is not None:
-        bits.append(f"士气{_fmt_quality_num(snap['land_morale'])}")
+        approx = "≈" if snap.get("land_morale_proxy") else ""
+        bits.append(f"士气{approx}{_fmt_quality_num(snap['land_morale'])}")
+    if snap.get("naval_morale") is not None:
+        bits.append(f"舰船士气{_fmt_quality_num(snap['naval_morale'])}")
     return " ".join(bits)
 
 
@@ -244,7 +247,12 @@ class NameResolver:
                 foe_force.pop("discipline", None)
             if not detail.get("has_both_land_morale"):
                 player_force.pop("land_morale", None)
+                player_force.pop("land_morale_proxy", None)
                 foe_force.pop("land_morale", None)
+                foe_force.pop("land_morale_proxy", None)
+            if not detail.get("has_both_naval_morale"):
+                player_force.pop("naval_morale", None)
+                foe_force.pop("naval_morale", None)
             if player_force or foe_force:
                 summary = (
                     f"军力对比：{_fmt_force_side_zh(c(tag), player_force)} vs "

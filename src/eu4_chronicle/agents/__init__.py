@@ -421,9 +421,24 @@ def _war_tech_compare_fact(e, names: NameResolver) -> str | None:
             f"{foe_l} {_fmt_q(foe_force['discipline'])}"
         )
     if detail.get("has_both_land_morale") and player_force and foe_force:
+        # 团级 morale 中位数代理 →「士气≈N」（陆战单位士气快照）
+        p_approx = "≈" if player_force.get("land_morale_proxy") else ""
+        f_approx = "≈" if foe_force.get("land_morale_proxy") else ""
+        # 任一侧为代理则统一用 ≈，标明来自部队当前士气快照
+        if p_approx or f_approx:
+            bits.append(
+                f"士气≈ {player_l} {_fmt_q(player_force['land_morale'])} vs "
+                f"{foe_l} {_fmt_q(foe_force['land_morale'])}"
+            )
+        else:
+            bits.append(
+                f"士气 {player_l} {_fmt_q(player_force['land_morale'])} vs "
+                f"{foe_l} {_fmt_q(foe_force['land_morale'])}"
+            )
+    if detail.get("has_both_naval_morale") and player_force and foe_force:
         bits.append(
-            f"士气 {player_l} {_fmt_q(player_force['land_morale'])} vs "
-            f"{foe_l} {_fmt_q(foe_force['land_morale'])}"
+            f"舰船士气 {player_l} {_fmt_q(player_force['naval_morale'])} vs "
+            f"{foe_l} {_fmt_q(foe_force['naval_morale'])}"
         )
 
     if not bits:
@@ -726,6 +741,8 @@ def _force_guidance_lines(diff: DiffResult) -> list[str]:
             dims.append("纪律")
         if detail.get("has_both_land_morale"):
             dims.append("士气")
+        if detail.get("has_both_naval_morale"):
+            dims.append("舰船士气")
         if detail.get("has_both_mil"):
             dims.append("军科")
         if dims:
@@ -734,7 +751,9 @@ def _force_guidance_lines(diff: DiffResult) -> list[str]:
         if detail.get("has_both_discipline"):
             must_dims.append("纪律")
         if detail.get("has_both_land_morale"):
-            must_dims.append("士气")
+            must_dims.append("士气（含士气≈代理）")
+        if detail.get("has_both_naval_morale"):
+            must_dims.append("舰船士气")
         if must_dims:
             lines.append(
                 f"- **必须写入战局/叙事（不得省略）**：{'、'.join(must_dims)}。"
@@ -750,6 +769,8 @@ def _force_guidance_lines(diff: DiffResult) -> list[str]:
             missing.append("士气")
         if missing:
             lines.append(f"- 缺双方数字、禁止对比：{'、'.join(missing)}。")
+            if "纪律" in missing:
+                lines.append("- 无纪律数值：成稿勿提纪律（禁止臆造）。")
         if not detail.get("has_both_army") and not detail.get("has_both_manpower"):
             lines.append(
                 "- 无双方兵力/人力：禁止「"

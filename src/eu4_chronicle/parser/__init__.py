@@ -238,7 +238,7 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         army_size=node.get_float("army_size") or _count_units(node, "army"),
         navy_size=node.get_float("navy_size") or _count_units(node, "navy"),
         discipline=_resolve_discipline(node),
-        land_morale=_resolve_land_morale(node),
+        **_resolve_morale_fields(node),
         prestige=node.get_float("prestige"),
         stability=node.get_int("stability"),
         monarch=monarch,
@@ -316,10 +316,54 @@ def _resolve_discipline(node: ObjectNode) -> float | None:
     return round(1.0 + sum(vals), 4)
 
 
-def _resolve_land_morale(node: ObjectNode) -> float | None:
-    """士气：优先顶层绝对士气；可加 land_morale_constant。
+def _median(vals: list[float]) -> float | None:
+    if not vals:
+        return None
+    ordered = sorted(vals)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
 
-    仅有乘法 bonus（<1.5）且无绝对士气时无法还原 UI 士气 → None（交给 dump-military）。
+
+def _unit_morale_values(node: ObjectNode, force_key: str, unit_key: str) -> list[float]:
+    """收集 army.regiment.morale 或 navy.ship.morale（仅部队节点，不扫其它 morale）。"""
+    out: list[float] = []
+    seen_force: set[int] = set()
+    forces: list[ObjectNode] = []
+    for force in node.all_objects(force_key):
+        fid = id(force)
+        if fid not in seen_force:
+            seen_force.add(fid)
+            forces.append(force)
+    for item in node.get_list(force_key):
+        if isinstance(item, ObjectNode) and id(item) not in seen_force:
+            seen_force.add(id(item))
+            forces.append(item)
+    for force in forces:
+        seen_unit: set[int] = set()
+        units: list[ObjectNode] = []
+        for unit in force.all_objects(unit_key):
+            uid = id(unit)
+            if uid not in seen_unit:
+                seen_unit.add(uid)
+                units.append(unit)
+        for item in force.get_list(unit_key):
+            if isinstance(item, ObjectNode) and id(item) not in seen_unit:
+                seen_unit.add(id(item))
+                units.append(item)
+        for unit in units:
+            m = unit.get_float_optional("morale")
+            if m is not None:
+                out.append(m)
+    return out
+
+
+def _resolve_land_morale_absolute(node: ObjectNode) -> float | None:
+    """绝对士气：顶层 / 嵌套 land_morale（≥1.5）+ land_morale_constant。
+
+    仅有乘法 bonus（<1.5）无法还原 UI 士气 → None（再回退团级代理）。
     """
     constants = _collect_key_floats(node, "land_morale_constant")
     const_sum = sum(v for _, v in constants)
@@ -333,8 +377,37 @@ def _resolve_land_morale(node: ObjectNode) -> float | None:
     abs_like = [v for v in vals if v >= 1.5]
     if abs_like:
         return round(abs_like[0] + const_sum, 4)
-    # 仅有百分比 bonus：无游戏定义文件无法还原绝对士气
     return None
+
+
+def _resolve_morale_fields(node: ObjectNode) -> dict[str, float | bool | None]:
+    """解析陆/海士气。
+
+    - land_morale：优先绝对字段；否则 army[*].regiment[*].morale 中位数代理
+    - naval_morale：navy[*].ship[*].morale 中位数（可选对比维）
+    - discipline 仍由 _resolve_discipline 负责；无数值保持 None，禁止臆造
+    """
+    absolute = _resolve_land_morale_absolute(node)
+    if absolute is not None:
+        land: float | None = absolute
+        proxy = False
+    else:
+        reg_vals = _unit_morale_values(node, "army", "regiment")
+        med = _median(reg_vals)
+        if med is not None:
+            land = round(med, 4)
+            proxy = True
+        else:
+            land = None
+            proxy = False
+    ship_vals = _unit_morale_values(node, "navy", "ship")
+    naval_med = _median(ship_vals)
+    naval = round(naval_med, 4) if naval_med is not None else None
+    return {
+        "land_morale": land,
+        "land_morale_proxy": proxy,
+        "naval_morale": naval,
+    }
 
 
 def _named_modifiers(node: ObjectNode) -> list[str]:
@@ -630,20 +703,85 @@ def dump_war_scores(path: Path | str, *, player_only: bool = True) -> str:
     return format_war_score_dump(state, player_only=player_only)
 
 
+def _normalize_tag(raw: str) -> str | None:
+    """规范化 TAG：去引号/空白/尾部杂符（如 shell 残留 ~），大写；非法则 None。
+
+    禁止生成幽灵 tag（如 POL~）；查不到就如实 missing，不发明近似键。
+    """
+    t = raw.strip().strip("\"'").upper()
+    # 去掉尾部非字母数字（PowerShell/补全偶发 POL~）
+    while t and not t[-1].isalnum():
+        t = t[:-1]
+    while t and not t[0].isalnum():
+        t = t[1:]
+    if len(t) != 3 or not t.isalnum():
+        return None
+    return t
+
+
+def _normalize_tag_list(tags: list[str] | None) -> list[str] | None:
+    if tags is None:
+        return None
+    out: list[str] = []
+    for raw in tags:
+        n = _normalize_tag(raw)
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
+def _lookup_country(state: GameState, tag: str) -> CountryState | None:
+    c = state.countries.get(tag)
+    if c is not None:
+        return c
+    # 容错：键大小写不一致时仍命中真 TAG，不造幽灵键
+    upper = tag.upper()
+    for k, v in state.countries.items():
+        if k.upper() == upper:
+            return v
+    return None
+
+
+def _lookup_country_node(
+    countries_root: ObjectNode | None, tag: str
+) -> ObjectNode | None:
+    if countries_root is None:
+        return None
+    raw = countries_root.values.get(tag)
+    if isinstance(raw, ObjectNode):
+        return raw
+    upper = tag.upper()
+    for k, val in countries_root.values.items():
+        if k.upper() == upper and isinstance(val, ObjectNode):
+            return val
+    return None
+
+
 def _default_military_dump_tags(state: GameState) -> list[str]:
     """玩家 + 其参战战争的攻守领袖。"""
     tags: list[str] = []
     player = state.player
     if player:
-        tags.append(player)
+        n = _normalize_tag(player)
+        if n:
+            tags.append(n)
     for w in state.wars:
-        involved = set(w.attackers) | set(w.defenders)
-        if player and player not in involved:
+        involved = set()
+        for t in (*w.attackers, *w.defenders):
+            nt = _normalize_tag(t)
+            if nt:
+                involved.add(nt)
+        player_n = _normalize_tag(player) if player else None
+        if player_n and player_n not in involved:
             continue
         if w.attackers:
-            tags.append(w.attackers[0])
+            n = _normalize_tag(w.attackers[0])
+            if n:
+                tags.append(n)
         if w.defenders:
-            tags.append(w.defenders[0])
+            n = _normalize_tag(w.defenders[0])
+            if n:
+                tags.append(n)
     return list(dict.fromkeys(t for t in tags if t))
 
 
@@ -654,13 +792,15 @@ def format_military_dump(
     tags: list[str] | None = None,
 ) -> str:
     """格式化纪律/士气候选键与解析结果，供本机贴回确认。"""
-    want = tags or _default_military_dump_tags(state)
+    want = _normalize_tag_list(tags) or _default_military_dump_tags(state)
     lines: list[str] = [
         f"# dump-military  date={state.date}  player={state.player or '?'}",
         f"# source={state.source_path or '(text)'}",
         "# 说明：真档常无国块顶层 discipline/land_morale 裸字段；"
         "本工具会扫嵌套数值并聚合 modifier 内小幅 bonus（纪律按 1.0+sum）。",
-        "# 仅有 land_morale 百分比 bonus、无绝对士气时无法还原 UI 士气 → parsed=None。",
+        "# 无绝对 land_morale 时：用 army[*].regiment[*].morale 中位数作士气代理"
+        "（parsed 旁注 regiment_morale_median）；纪律无数值保持 None，禁止臆造。",
+        "# naval：navy[*].ship[*].morale 中位数 → parsed_naval_morale（可选舰船士气）。",
         "# named modifier 只有名字、无数值；需游戏定义文件才能换算，此处只列出。",
         f"# tags={want}",
         "",
@@ -670,7 +810,7 @@ def format_military_dump(
         return "\n".join(lines)
 
     for tag in want:
-        c = state.countries.get(tag)
+        c = _lookup_country(state, tag)
         lines.append(f"## {tag}")
         if c is None:
             lines.append("  (countries 中无此 TAG)")
@@ -682,13 +822,15 @@ def format_military_dump(
         mil = (c.technology or {}).get("mil_tech")
         lines.append(f"  mil_tech={mil}")
         lines.append(f"  parsed_discipline={c.discipline}")
-        lines.append(f"  parsed_land_morale={c.land_morale}")
+        if c.land_morale is not None and c.land_morale_proxy:
+            lines.append(
+                f"  parsed_land_morale={c.land_morale}  # regiment_morale_median（陆战单位士气代理）"
+            )
+        else:
+            lines.append(f"  parsed_land_morale={c.land_morale}")
+        lines.append(f"  parsed_naval_morale={c.naval_morale}")
 
-        raw_node: ObjectNode | None = None
-        if countries_root is not None:
-            raw = countries_root.values.get(tag)
-            if isinstance(raw, ObjectNode):
-                raw_node = raw
+        raw_node = _lookup_country_node(countries_root, tag)
 
         if raw_node is None:
             lines.append("  raw_country_node=(missing)")
@@ -703,6 +845,24 @@ def format_military_dump(
                     lines.append(f"    {loc}={val}")
             else:
                 lines.append(f"  numeric_{key}: (none)")
+
+        reg_morales = _unit_morale_values(raw_node, "army", "regiment")
+        if reg_morales:
+            med = _median(reg_morales)
+            uniq = sorted(set(round(v, 4) for v in reg_morales))
+            lines.append(
+                f"  regiment_morale: n={len(reg_morales)} median={med} "
+                f"distinct={uniq[:8]}{'…' if len(uniq) > 8 else ''}"
+            )
+        else:
+            lines.append("  regiment_morale: (none)")
+
+        ship_morales = _unit_morale_values(raw_node, "navy", "ship")
+        if ship_morales:
+            med = _median(ship_morales)
+            lines.append(f"  ship_morale: n={len(ship_morales)} median={med}")
+        else:
+            lines.append("  ship_morale: (none)")
 
         named = _named_modifiers(raw_node)
         if named:

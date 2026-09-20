@@ -75,7 +75,10 @@ def dump_military_cmd(
     """打印纪律/士气解析结果与候选键，便于确认真档键位。"""
     from eu4_chronicle.parser import IronmanSaveError, SaveParseError, dump_military
 
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    tag_list = None
+    if tags:
+        # 支持 TEU,POL / "TEU, POL" / 尾部杂符；规范化为大写 3 字 TAG，不造幽灵键
+        tag_list = [t.strip() for t in tags.replace(";", ",").split(",") if t.strip()]
     try:
         text = dump_military(save, tags=tag_list)
     except IronmanSaveError as exc:
