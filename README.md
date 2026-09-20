@@ -157,33 +157,46 @@ uv run eu4-chronicle serve
 
 **API Key 不在 UI 里配置**，只读项目根目录 `.env` / 环境变量（与 CLI 相同）。
 
+> **请用 Windows 资源管理器双击 `scripts\EU4战报.bat`（或 `EU4战报.cmd`）。**  
+> **不要在 WSL 里执行 bat，也不要在 WSL 里 `uv run eu4-chronicle-desktop`。**  
+> 在 WSL / 无桌面窗环境下，pywebview 会因缺少 GTK/`gi` 失败；程序会改用系统浏览器打开选档页，并打印中文说明——回车或 Ctrl+C 退出并停服。原生 Win32 窗口请走资源管理器双击（WebView2 / edgechromium）。
+
 ### 一次性准备
 
-```bash
+在 **Windows**（PowerShell / cmd，或资源管理器双击 bat 时自动 sync）执行：
+
+```bat
 cd <本仓库根目录>
-cp .env.example .env
-# 编辑 .env：按需填 EU4_SAVE_DIR、以及 llm 模式所需的 OPENAI_* 
+copy .env.example .env
+REM 编辑 .env：按需填 EU4_SAVE_DIR、以及 llm 模式所需的 OPENAI_*
 uv sync --extra desktop --extra llm
 ```
+
+仓库若在 WSL 路径（如 `/home/.../genesis`），请在资源管理器打开 `\\wsl$\<发行版>\home\...\genesis\scripts\` 再双击 bat，以便调用 **Windows** 的 `uv` / Python。
 
 ### Windows 双击
 
 1. 在资源管理器中打开仓库的 `scripts\` 目录
-2. 双击 `EU4战报.bat`（会先 `uv sync`，再打开窗口）
+2. 双击 `EU4战报.bat` 或 `EU4战报.cmd`（会先 `uv sync`，再打开 WebView2 窗口）
 3. 若要放到桌面：右键该 bat →「发送到」→「桌面快捷方式」；快捷方式属性里「起始位置」保持仓库根亦可（脚本自身会 `cd` 到仓库根）
 
-也可在仓库根手动启动：
+仅在确认当前是 **Win32** Python 时，也可在仓库根手动启动：
 
-```bash
+```bat
 uv run eu4-chronicle-desktop
 ```
 
+### Linux / WSL
+
+- **WSL**：优先仍用资源管理器双击上述 bat；若在 WSL 终端跑 `eu4-chronicle-desktop`，会检测 WSL 并**浏览器回退**（不崩），提示去 Windows 双击以获得原生窗。
+- **无 DISPLAY 的 Linux**：同样浏览器回退；有桌面且已装 GTK/`gi` 时才尝试 pywebview。
+
 ### 验收要点
 
-- 双击后出现「EU4 战报」窗口，能列出存档
+- **Windows 资源管理器双击**：出现「EU4 战报」原生窗口（WebView2），能列出存档
+- **WSL 终端误跑**：不报 `No module named 'gi'` 崩掉；浏览器打开选档页；回车/Ctrl+C 后停服
 - mock / llm 均可出成稿（llm 需已配 `.env` Key）
-- 关闭窗口后，本机 `18765` 端口应释放（若该端口原先已被 `eu4-chronicle serve` 占用，桌面端会复用已有服务且关窗不杀它）
-
+- 关闭窗口（或浏览器回退退出）后，本机 `18765` 端口应释放（若该端口原先已被 `eu4-chronicle serve` 占用，桌面端会复用已有服务且退出不杀它）
 ## 限制
 
 - **铁人存档**：第一期不支持
@@ -217,7 +230,7 @@ src/eu4_chronicle/
   desktop.py   # pywebview 桌面壳（optional extra: desktop）
   static/      # 选档 / 出战报前端
 scripts/
-  EU4战报.bat  # Windows 双击启动
+  EU4战报.bat / EU4战报.cmd  # Windows 资源管理器双击（勿在 WSL 执行）
 samples/
 tests/
 ```
