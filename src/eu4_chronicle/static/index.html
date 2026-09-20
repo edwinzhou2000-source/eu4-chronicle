@@ -329,7 +329,7 @@
       </div>
       <div id="boot-empty" class="empty hidden">
         <p id="empty-text">未找到 .eu4 存档。</p>
-        <p class="hint">请确认存档目录存在，或在项目根目录的 <code>.env</code> 中设置 <code>EU4_SAVE_DIR</code>。</p>
+        <p class="hint">请确认存档目录存在且含有 <code>.eu4</code>。WSL 下可在项目根 <code>.env</code> 设置：<code>EU4_SAVE_DIR=/mnt/c/Users/你的用户名/Documents/Paradox Interactive/Europa Universalis IV/save games</code>，然后重启桌面快捷方式。</p>
       </div>
       <div id="picker" class="hidden">
         <div class="meta">
@@ -470,13 +470,20 @@
       try {
         const health = await fetchJson("/health");
         els.healthMode.textContent = health.mode || "—";
+        // 先展示 health 解析到的绝对路径，避免 /saves 失败时只剩「.」
+        if (health.save_dir && health.save_dir !== ".") {
+          els.saveDir.textContent = health.save_dir;
+        }
         const data = await fetchJson("/saves");
-        els.saveDir.textContent = data.save_dir || "—";
+        const saveDir = (data.save_dir && data.save_dir !== ".")
+          ? data.save_dir
+          : (health.save_dir && health.save_dir !== "." ? health.save_dir : "（未解析到存档目录）");
+        els.saveDir.textContent = saveDir;
         const files = Array.isArray(data.files) ? data.files : [];
 
         els.bootLoading.classList.add("hidden");
         if (!files.length) {
-          els.emptyText.textContent = `目录中没有 .eu4：${data.save_dir || "（未知）"}`;
+          els.emptyText.textContent = `目录中没有 .eu4：${saveDir}`;
           els.bootEmpty.classList.remove("hidden");
           return;
         }
@@ -487,7 +494,12 @@
       } catch (err) {
         els.bootLoading.classList.add("hidden");
         els.bootEmpty.classList.remove("hidden");
-        els.emptyText.textContent = "无法加载存档列表。";
+        const shown = els.saveDir.textContent;
+        if (shown && shown !== "—" && shown !== ".") {
+          els.emptyText.textContent = `无法加载存档列表（当前目录：${shown}）。`;
+        } else {
+          els.emptyText.textContent = "无法加载存档列表。";
+        }
         showBanner(err.message || String(err), "error");
       }
     }

@@ -37,10 +37,23 @@ uv sync --extra llm --extra desktop --extra dev
 
 `%USERPROFILE%\Documents\Paradox Interactive\Europa Universalis IV\save games`
 
+**WSL（仓库在 Linux、存档在 Windows）**：未设置 `EU4_SAVE_DIR` 时，会自动探测常见路径，例如：
+
+`/mnt/c/Users/<Windows用户名>/Documents/Paradox Interactive/Europa Universalis IV/save games`
+
+也会尝试 OneDrive / `文档` 变体；仅当目录真实存在（优先含有 `.eu4`）时才用作默认。若自动探测不对，请在 `.env` 显式写出：
+
+```bash
+# WSL 访问 Windows 存档（把 YourName 换成你的 Windows 用户名）
+EU4_SAVE_DIR=/mnt/c/Users/YourName/Documents/Paradox Interactive/Europa Universalis IV/save games
+```
+
 ```bash
 export EU4_SAVE_DIR="$HOME/Documents/Paradox Interactive/Europa Universalis IV/save games"
 # 或 cp .env.example .env 后编辑
 ```
+
+> `.env` 里不要留空的 `EU4_SAVE_DIR=`（空串会被当成当前目录 `.`）。不需要自定义时删掉该行或注释掉即可。
 
 ## Mock 与真实 LLM
 

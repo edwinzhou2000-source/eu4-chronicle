@@ -3,23 +3,178 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_PARADOX_SAVE_TAIL = Path("Paradox Interactive") / "Europa Universalis IV" / "save games"
+_SKIP_WIN_USERS = frozenset(
+    {
+        "public",
+        "default",
+        "default user",
+        "defaultuser",
+        "all users",
+        "allusers",
+        "desktop.ini",
+    }
+)
+
+
+def _is_wsl() -> bool:
+    if sys.platform != "linux":
+        return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        text = Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return "microsoft" in text or "wsl" in text
+
+
+def _windows_usernames() -> list[str]:
+    """推断 Windows 用户名（优先环境变量，再扫 /mnt/c/Users）。"""
+    names: list[str] = []
+    for key in ("WSL_USER", "USER", "USERNAME"):
+        val = (os.environ.get(key) or "").strip()
+        if val and val.lower() not in _SKIP_WIN_USERS and val not in names:
+            names.append(val)
+
+    users_root = Path("/mnt/c/Users")
+    scanned: list[str] = []
+    if users_root.is_dir():
+        try:
+            entries = sorted(users_root.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            entries = []
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name.lower() in _SKIP_WIN_USERS:
+                continue
+            if name not in scanned:
+                scanned.append(name)
+
+    ordered: list[str] = []
+    for n in names:
+        if n not in ordered:
+            ordered.append(n)
+    for n in scanned:
+        if n not in ordered:
+            ordered.append(n)
+    return ordered
+
+
+def _wsl_save_dir_candidates() -> list[Path]:
+    """WSL 下常见 Windows EU4 存档路径（按优先级）。"""
+    docs_names = ("Documents", "文档")
+    roots: list[Path] = []
+    for user in _windows_usernames():
+        base = Path("/mnt/c/Users") / user
+        for docs in docs_names:
+            roots.append(base / docs)
+            roots.append(base / "OneDrive" / docs)
+            roots.append(base / "OneDrive" / "Documents")
+            roots.append(base / "OneDrive" / "文档")
+    # 去重且保序
+    seen: set[str] = set()
+    out: list[Path] = []
+    for root in roots:
+        cand = root / _PARADOX_SAVE_TAIL
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cand)
+    return out
+
+
+def _native_save_dir_candidates() -> list[Path]:
+    userprofile = os.environ.get("USERPROFILE")
+    out: list[Path] = []
+    if userprofile:
+        out.append(Path(userprofile) / "Documents" / _PARADOX_SAVE_TAIL)
+        out.append(Path(userprofile) / "OneDrive" / "Documents" / _PARADOX_SAVE_TAIL)
+        out.append(Path(userprofile) / "OneDrive" / "文档" / _PARADOX_SAVE_TAIL)
+    out.append(Path.home() / "Documents" / _PARADOX_SAVE_TAIL)
+    seen: set[str] = set()
+    uniq: list[Path] = []
+    for p in out:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+    return uniq
+
+
+def iter_default_save_dir_candidates() -> list[Path]:
+    if _is_wsl():
+        return [*_wsl_save_dir_candidates(), *_native_save_dir_candidates()]
+    return _native_save_dir_candidates()
+
+
+def resolve_default_save_dir() -> Path:
+    """解析默认存档目录。
+
+    - 优先：存在且含有 ``*.eu4`` 的候选路径
+    - 其次：存在的 ``save games`` / Paradox 目录
+    - 否则：返回最可能的绝对路径（用于提示），**绝不**返回 ``.``
+    """
+    candidates = iter_default_save_dir_candidates()
+    with_eu4: list[Path] = []
+    existing: list[Path] = []
+    for cand in candidates:
+        try:
+            if not cand.is_dir():
+                continue
+        except OSError:
+            continue
+        existing.append(cand)
+        try:
+            if any(cand.glob("*.eu4")):
+                with_eu4.append(cand)
+        except OSError:
+            continue
+
+    chosen: Path
+    if with_eu4:
+        chosen = with_eu4[0]
+    elif existing:
+        chosen = existing[0]
+    elif candidates:
+        chosen = candidates[0]
+    else:
+        chosen = Path.home() / "Documents" / _PARADOX_SAVE_TAIL
+
+    try:
+        return chosen.expanduser().resolve(strict=False)
+    except OSError:
+        return chosen.expanduser().absolute()
+
 
 def default_windows_save_dir() -> Path:
-    """Windows 默认 EU4 存档目录；非 Windows 则回落到用户主目录下的同相对路径。"""
-    userprofile = os.environ.get("USERPROFILE") or str(Path.home())
-    return (
-        Path(userprofile)
-        / "Documents"
-        / "Paradox Interactive"
-        / "Europa Universalis IV"
-        / "save games"
-    )
+    """兼容旧名：默认 EU4 存档目录（含 WSL 自动探测）。"""
+    return resolve_default_save_dir()
+
+
+def format_save_dir(path: Path) -> str:
+    """UI / API 展示用绝对路径，避免出现裸 ``.`` 或把空配置 resolve 成进程 cwd。"""
+    raw = str(path).strip() if path is not None else ""
+    if not raw or raw in {".", "./"}:
+        return str(resolve_default_save_dir())
+    try:
+        text = str(Path(raw).expanduser().resolve(strict=False))
+    except OSError:
+        text = str(Path(raw).expanduser().absolute())
+    if not text or text in {".", "./"}:
+        return str(resolve_default_save_dir())
+    return text
 
 
 # 无 Key 却显式要求 llm 时的人话提示（CLI / API / 单测共用）
@@ -40,7 +195,7 @@ class Settings(BaseSettings):
     )
 
     save_dir: Path = Field(
-        default_factory=default_windows_save_dir,
+        default_factory=lambda: resolve_default_save_dir(),
         validation_alias="EU4_SAVE_DIR",
     )
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
@@ -56,6 +211,33 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", validation_alias="EU4_CHRONICLE_HOST")
     port: int = Field(default=18765, validation_alias="EU4_CHRONICLE_PORT")
     agent_concurrency: int = Field(default=3, validation_alias="EU4_CHRONICLE_CONCURRENCY")
+
+    @field_validator("save_dir", mode="before")
+    @classmethod
+    def _blank_save_dir_as_default(cls, value: object) -> object:
+        """``.env`` 里 ``EU4_SAVE_DIR=`` 空串会被 Path 变成 ``.``，视为未设置。"""
+        if value is None:
+            return resolve_default_save_dir()
+        if isinstance(value, str) and not value.strip():
+            return resolve_default_save_dir()
+        if isinstance(value, Path) and str(value) in {".", ""}:
+            return resolve_default_save_dir()
+        return value
+
+    @field_validator("save_dir", mode="after")
+    @classmethod
+    def _normalize_save_dir(cls, value: Path) -> Path:
+        raw = str(value).strip() if value is not None else ""
+        if not raw or raw in {".", "./"}:
+            return resolve_default_save_dir()
+        # Path('') / Path('.') 在部分环境下 expand 后仍可能指向 cwd；禁止把「未配置」当成仓库根
+        try:
+            resolved = value.expanduser().resolve(strict=False)
+        except OSError:
+            resolved = value.expanduser().absolute()
+        if str(resolved) in {".", "./"}:
+            return resolve_default_save_dir()
+        return resolved
 
     @field_validator("openai_api_key", mode="before")
     @classmethod

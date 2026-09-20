@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from eu4_chronicle.agents.llm import LLMError
-from eu4_chronicle.config import get_settings
+from eu4_chronicle.config import format_save_dir, get_settings
 from eu4_chronicle.pipeline import analyze_saves
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -54,11 +54,12 @@ def _resolve_save(path_or_name: str) -> Path:
 @app.get("/health")
 def health() -> dict:
     settings = get_settings()
+    save_dir = format_save_dir(settings.save_dir)
     return {
         "ok": True,
         "mode": settings.resolved_mode(),
-        "save_dir": str(settings.save_dir),
-        "save_dir_exists": settings.save_dir.exists(),
+        "save_dir": save_dir,
+        "save_dir_exists": Path(save_dir).exists(),
     }
 
 
@@ -66,10 +67,15 @@ def health() -> dict:
 def list_saves() -> dict:
     settings = get_settings()
     directory = settings.save_dir
+    save_dir_text = format_save_dir(directory)
     if not directory.exists():
         raise HTTPException(
             status_code=400,
-            detail=f"存档目录不存在: {directory}。请设置环境变量 EU4_SAVE_DIR。",
+            detail=(
+                f"存档目录不存在: {save_dir_text}。"
+                "请在项目根目录 .env 设置 EU4_SAVE_DIR"
+                "（WSL 示例见 README），或确认 Windows 存档已挂到 /mnt/c/Users/...。"
+            ),
         )
     files = []
     for f in sorted(directory.glob("*.eu4")):
@@ -81,7 +87,7 @@ def list_saves() -> dict:
                 "mtime": f.stat().st_mtime,
             }
         )
-    return {"save_dir": str(directory), "files": files}
+    return {"save_dir": save_dir_text, "files": files}
 
 
 @app.post("/analyze")
