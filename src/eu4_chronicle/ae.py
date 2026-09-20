@@ -105,21 +105,19 @@ def assess_player_ae(
 
 
 def ae_guidance_lines(ae: AeAssessment, *, player_label: str, for_user: bool = True) -> list[str]:
-    """外交/战局可用的诚实 AE 文案（无恐吓套话）。
+    """外交/战局可用的诚实 AE 文案（无恐吓套话、无平静期机制科普）。
 
     for_user=True：可进成稿正文。
     for_user=False：可含调试旁注，仅供 brief / LLM，勿写入用户成稿。
     """
-    mech = "（机制：包围网一般需对他国对你 AE 超过 50）"
     if ae.level == "none":
-        lines = [
-            f"当前未见高 AE / 包围网风险低{mech}。",
-        ]
+        # 平静期：最多一句，勿附带包围网门槛教科书
+        lines = ["当前未见高 AE / 包围网风险低。"]
         if not for_user:
-            lines.append("档内无 AE 跳变或显著数值；勿编造恐吓。")
+            lines.append("档内无 AE 跳变或显著数值；勿编造恐吓；勿写机制科普。")
         return lines
     if ae.level == "low":
-        lines = [f"当前未见高 AE / 包围网风险低{mech}。"]
+        lines = ["当前未见高 AE / 包围网风险低。"]
         if ae.facts:
             lines.append("已知数值：" + "；".join(ae.facts))
         elif ae.has_change:
@@ -128,7 +126,7 @@ def ae_guidance_lines(ae: AeAssessment, *, player_label: str, for_user: bool = T
     if ae.level == "rising":
         lines = [
             f"{player_label} 面临的扩张侵略度有所上升（峰值约 {ae.max_to:.0f}），"
-            f"仍低于包围网常见门槛 50{mech}。"
+            f"仍低于包围网常见门槛 50。"
         ]
         if ae.facts:
             lines.append("事实：" + "；".join(ae.facts))
@@ -137,7 +135,7 @@ def ae_guidance_lines(ae: AeAssessment, *, player_label: str, for_user: bool = T
         return lines
     if ae.level == "approaching":
         lines = [
-            f"AE 已接近包围网门槛（约 {ae.max_to:.0f}，门槛 50）{mech}。",
+            f"AE 已接近包围网门槛（约 {ae.max_to:.0f}，门槛 50）。",
         ]
         if ae.facts:
             lines.append("事实：" + "；".join(ae.facts))
@@ -145,12 +143,30 @@ def ae_guidance_lines(ae: AeAssessment, *, player_label: str, for_user: bool = T
         return lines
     # high
     lines = [
-        f"AE 已达到或超过包围网门槛（约 {ae.max_to:.0f} ≥ 50）{mech}。",
+        f"AE 已达到或超过包围网门槛（约 {ae.max_to:.0f} ≥ 50）。",
     ]
     if ae.facts:
         lines.append("事实：" + "；".join(ae.facts))
     lines.append("警告：忌在高 AE 窗口另开第二战场；用改善关系与外交隔离对冲联军风险。")
     return lines
+
+
+# 无 AE 跳变/高 AE 时禁止写入成稿的机制科普句（LLM 易复读）
+MECHANISM_FLUFF_PHRASES = (
+    "宿敌关系本身不直接",
+    "宣战亦不结算 AE",
+    "宣战本身不会立刻结算 AE",
+    "宣战本身不等于结算 AE",
+    "割地与苛刻和约才会",
+    "机制上，包围网",
+    "（机制：包围网一般需",
+    "机制：包围网一般需",
+    "并点明包围网一般需 AE>50",
+)
+
+
+def contains_mechanism_fluff(text: str) -> bool:
+    return any(p in text for p in MECHANISM_FLUFF_PHRASES)
 
 
 # 成稿在低 AE 时禁止的恐吓片段（「未见高 AE」为允许的诚实表述）

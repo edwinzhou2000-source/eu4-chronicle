@@ -444,11 +444,8 @@ def _mock_diplo_section(
     # 用户成稿：不含调试旁注
     guidance = ae_guidance_lines(ae, player_label=player, for_user=True)
     if not diplo:
-        text = (
-            f"{player} 外交结构相对平稳。"
-            + "".join(guidance)
-            + "宣战本身不会立刻结算 AE，割地与苛刻和约才会。"
-        )
+        # 无外交 Diff：一句平稳 + AE 平静句（勿写机制科普）
+        text = f"{player} 外交结构相对平稳。" + "".join(guidance)
         return f"### 外交纪要\n{text}" if heading else text
 
     lines: list[str] = []
@@ -530,7 +527,8 @@ def make_brief(
         "## AE 态势（供外交官/主编遵守，禁止编造恐吓；调试旁注勿写入成稿正文）",
         f"level={ae.level} max_to={ae.max_to:.0f} has_change={ae.has_change} warn_coalition={ae.warn_coalition}",
         *[f"- {g}" for g in guide],
-        "- 硬性：包围网一般需对你 AE 超过 50；AE=0 或无跳变时必须写「当前未见高 AE / 包围网风险低」。",
+        "- 硬性：AE=0 或无跳变时最多一句「当前未见高 AE / 包围网风险低」，禁止机制科普；"
+        "仅 level=approaching|high 才可提包围网门槛。",
         "",
         "## 战争分数态势（供军师/史官/主编遵守）",
         *[f"- {g}" for g in war_lines],
