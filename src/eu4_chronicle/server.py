@@ -1,21 +1,33 @@
-"""本机 FastAPI：列表存档、触发分析、返回战报。"""
+"""本机 FastAPI：列表存档、触发分析、返回战报；并托管选档前端。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from eu4_chronicle.agents.llm import LLMError
 from eu4_chronicle.config import get_settings
 from eu4_chronicle.pipeline import analyze_saves
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
+
 app = FastAPI(
     title="EU4 Chronicle",
     description="本机 EU4 存档 Diff 与多角色战报服务（仅绑定本机回环地址）",
     version="0.1.0",
 )
+
+
+@app.get("/")
+def ui_index() -> FileResponse:
+    """选档 / 出战报前端（简体中文）。"""
+    if not INDEX_HTML.is_file():
+        raise HTTPException(status_code=500, detail="前端页面缺失：static/index.html")
+    return FileResponse(INDEX_HTML, media_type="text/html; charset=utf-8")
 
 
 class AnalyzeRequest(BaseModel):

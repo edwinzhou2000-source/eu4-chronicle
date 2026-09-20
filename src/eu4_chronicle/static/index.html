@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EU4 战报</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1a2433;
+      --ink-muted: #4a5568;
+      --paper: #f3efe6;
+      --paper-deep: #e6dfd0;
+      --panel: rgba(255, 252, 246, 0.92);
+      --line: #c8bda8;
+      --brass: #9a6b2f;
+      --brass-deep: #7a5220;
+      --danger: #8b2e2e;
+      --danger-bg: #f8e8e6;
+      --ok: #2f5d3a;
+      --shadow: 0 12px 40px rgba(26, 36, 51, 0.12);
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--ink);
+      font-family: "Source Sans 3", "Noto Sans SC", sans-serif;
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #d9c7a3 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #b7c4c8 0%, transparent 50%),
+        linear-gradient(165deg, #efe8d8 0%, var(--paper) 45%, #dfe6e4 100%);
+    }
+
+    body {
+      padding: 28px 20px 48px;
+    }
+
+    .shell {
+      width: min(920px, 100%);
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 22px;
+      animation: rise 0.55s ease-out both;
+    }
+
+    .brand {
+      font-family: "Noto Serif SC", serif;
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin: 0 0 6px;
+      color: var(--ink);
+    }
+
+    .tagline {
+      margin: 0;
+      color: var(--ink-muted);
+      font-size: 0.98rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+      animation: rise 0.65s ease-out both;
+    }
+
+    .panel h2 {
+      font-family: "Noto Serif SC", serif;
+      font-size: 1.05rem;
+      margin: 0 0 14px;
+      font-weight: 700;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      font-size: 0.9rem;
+      color: var(--ink-muted);
+      margin-bottom: 16px;
+    }
+
+    .meta strong { color: var(--ink); font-weight: 600; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+    }
+
+    select, button {
+      font: inherit;
+    }
+
+    select {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffdf8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%234a5568' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center;
+      padding: 10px 34px 10px 12px;
+      color: var(--ink);
+    }
+
+    select:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 20px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    .mode {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .mode label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffdf8;
+      cursor: pointer;
+      font-size: 0.92rem;
+      font-weight: 600;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .mode input { accent-color: var(--brass); }
+    .mode label:has(input:checked) {
+      border-color: var(--brass);
+      background: #f7efdf;
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.92rem;
+      color: var(--ink-muted);
+      cursor: pointer;
+    }
+
+    .check input { accent-color: var(--brass); }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    button.primary {
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #b07d3a 0%, var(--brass-deep) 100%);
+      color: #fffaf0;
+      font-weight: 600;
+      padding: 11px 18px;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease;
+    }
+
+    button.primary:hover:not(:disabled) {
+      filter: brightness(1.05);
+      transform: translateY(-1px);
+    }
+
+    button.primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    button.ghost {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink-muted);
+      font-weight: 600;
+      padding: 11px 14px;
+      cursor: pointer;
+    }
+
+    button.ghost:hover:not(:disabled) {
+      border-color: var(--brass);
+      color: var(--ink);
+    }
+
+    .banner {
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      animation: fade 0.25s ease both;
+    }
+
+    .banner.error {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid #e2b4b0;
+    }
+
+    .banner.info {
+      background: #eef3ef;
+      color: var(--ok);
+      border: 1px solid #c5d6c8;
+    }
+
+    .empty, .loading {
+      text-align: center;
+      padding: 28px 12px;
+      color: var(--ink-muted);
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      margin: 0 auto 12px;
+      border: 3px solid var(--paper-deep);
+      border-top-color: var(--brass);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .report-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .report-head .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: var(--ink-muted);
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #fffdf8;
+    }
+
+    pre.markdown {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "Source Sans 3", "Noto Sans SC", sans-serif;
+      font-size: 0.98rem;
+      line-height: 1.65;
+      background: #fffdf8;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      max-height: min(60vh, 640px);
+      overflow: auto;
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: var(--ink-muted);
+    }
+
+    .hidden { display: none !important; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fade {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1 class="brand">EU4 战报</h1>
+      <p class="tagline">选两份本机存档，一键合成可分享的简体中文战报。API Key 仅从项目根目录 <code>.env</code> 读取。</p>
+    </header>
+
+    <section class="panel" aria-labelledby="pick-heading">
+      <h2 id="pick-heading">选择存档</h2>
+      <div id="status-banner" class="banner error hidden" role="alert"></div>
+      <div id="boot-loading" class="loading">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>正在连接本机服务…</div>
+      </div>
+      <div id="boot-empty" class="empty hidden">
+        <p id="empty-text">未找到 .eu4 存档。</p>
+        <p class="hint">请确认存档目录存在，或在项目根目录的 <code>.env</code> 中设置 <code>EU4_SAVE_DIR</code>。</p>
+      </div>
+      <div id="picker" class="hidden">
+        <div class="meta">
+          <span>存档目录：<strong id="save-dir">—</strong></span>
+          <span>服务模式：<strong id="health-mode">—</strong></span>
+        </div>
+        <div class="grid">
+          <label class="field">较早存档（prev）
+            <select id="prev-select"></select>
+          </label>
+          <label class="field">较新存档（curr）
+            <select id="curr-select"></select>
+          </label>
+        </div>
+        <div class="row">
+          <div class="mode" role="radiogroup" aria-label="分析模式">
+            <label><input type="radio" name="mode" value="mock" checked /> Mock（无需 Key）</label>
+            <label><input type="radio" name="mode" value="llm" /> LLM（读 .env Key）</label>
+          </div>
+          <label class="check">
+            <input type="checkbox" id="include-global" />
+            包含全球无关事件
+          </label>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="analyze-btn">生成战报</button>
+          <button type="button" class="ghost" id="refresh-btn">刷新列表</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="report-heading">
+      <h2 id="report-heading">战报成稿</h2>
+      <div id="analyze-loading" class="loading hidden">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>正在分析存档并撰写战报…</div>
+      </div>
+      <div id="report-empty" class="empty">
+        选好两份存档后点击「生成战报」。
+      </div>
+      <div id="report-body" class="hidden">
+        <div class="report-head">
+          <div class="chips">
+            <span class="chip" id="chip-title"></span>
+            <span class="chip" id="chip-span"></span>
+            <span class="chip" id="chip-player"></span>
+            <span class="chip" id="chip-events"></span>
+          </div>
+          <button type="button" class="ghost" id="copy-btn">复制成稿</button>
+        </div>
+        <pre class="markdown" id="markdown-out"></pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const els = {
+      banner: document.getElementById("status-banner"),
+      bootLoading: document.getElementById("boot-loading"),
+      bootEmpty: document.getElementById("boot-empty"),
+      emptyText: document.getElementById("empty-text"),
+      picker: document.getElementById("picker"),
+      saveDir: document.getElementById("save-dir"),
+      healthMode: document.getElementById("health-mode"),
+      prev: document.getElementById("prev-select"),
+      curr: document.getElementById("curr-select"),
+      includeGlobal: document.getElementById("include-global"),
+      analyzeBtn: document.getElementById("analyze-btn"),
+      refreshBtn: document.getElementById("refresh-btn"),
+      analyzeLoading: document.getElementById("analyze-loading"),
+      reportEmpty: document.getElementById("report-empty"),
+      reportBody: document.getElementById("report-body"),
+      markdown: document.getElementById("markdown-out"),
+      chipTitle: document.getElementById("chip-title"),
+      chipSpan: document.getElementById("chip-span"),
+      chipPlayer: document.getElementById("chip-player"),
+      chipEvents: document.getElementById("chip-events"),
+      copyBtn: document.getElementById("copy-btn"),
+    };
+
+    function showBanner(message, kind = "error") {
+      els.banner.textContent = message;
+      els.banner.className = `banner ${kind}`;
+      els.banner.classList.remove("hidden");
+    }
+
+    function clearBanner() {
+      els.banner.classList.add("hidden");
+      els.banner.textContent = "";
+    }
+
+    function selectedMode() {
+      const checked = document.querySelector('input[name="mode"]:checked');
+      return checked ? checked.value : "mock";
+    }
+
+    function fillSelect(select, files, preferredIndex) {
+      select.innerHTML = "";
+      if (!files.length) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "（无存档）";
+        select.appendChild(opt);
+        select.disabled = true;
+        return;
+      }
+      select.disabled = false;
+      files.forEach((f, i) => {
+        const opt = document.createElement("option");
+        opt.value = f.name;
+        opt.textContent = f.name;
+        if (i === preferredIndex) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok) {
+        const detail = data && (data.detail || data.message);
+        throw new Error(typeof detail === "string" ? detail : `请求失败（HTTP ${res.status}）`);
+      }
+      return data;
+    }
+
+    async function loadSaves() {
+      clearBanner();
+      els.bootLoading.classList.remove("hidden");
+      els.bootEmpty.classList.add("hidden");
+      els.picker.classList.add("hidden");
+
+      try {
+        const health = await fetchJson("/health");
+        els.healthMode.textContent = health.mode || "—";
+        const data = await fetchJson("/saves");
+        els.saveDir.textContent = data.save_dir || "—";
+        const files = Array.isArray(data.files) ? data.files : [];
+
+        els.bootLoading.classList.add("hidden");
+        if (!files.length) {
+          els.emptyText.textContent = `目录中没有 .eu4：${data.save_dir || "（未知）"}`;
+          els.bootEmpty.classList.remove("hidden");
+          return;
+        }
+
+        fillSelect(els.prev, files, 0);
+        fillSelect(els.curr, files, Math.min(1, files.length - 1));
+        els.picker.classList.remove("hidden");
+      } catch (err) {
+        els.bootLoading.classList.add("hidden");
+        els.bootEmpty.classList.remove("hidden");
+        els.emptyText.textContent = "无法加载存档列表。";
+        showBanner(err.message || String(err), "error");
+      }
+    }
+
+    async function runAnalyze() {
+      clearBanner();
+      const prev = els.prev.value;
+      const curr = els.curr.value;
+      if (!prev || !curr) {
+        showBanner("请先选择两份存档。", "error");
+        return;
+      }
+      if (prev === curr) {
+        showBanner("请选择两份不同的存档。", "error");
+        return;
+      }
+
+      els.analyzeBtn.disabled = true;
+      els.refreshBtn.disabled = true;
+      els.analyzeLoading.classList.remove("hidden");
+      els.reportEmpty.classList.add("hidden");
+      els.reportBody.classList.add("hidden");
+
+      try {
+        const report = await fetchJson("/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prev,
+            curr,
+            mode: selectedMode(),
+            include_global: els.includeGlobal.checked,
+          }),
+        });
+        els.chipTitle.textContent = report.title || "战报";
+        els.chipSpan.textContent = `${report.prev_date || "?"} → ${report.curr_date || "?"}`;
+        els.chipPlayer.textContent = `玩家 ${report.player || "?"}`;
+        els.chipEvents.textContent = `${report.event_count ?? 0} 条事件 · ${report.mode || selectedMode()}`;
+        els.markdown.textContent = report.final_markdown || "";
+        els.reportBody.classList.remove("hidden");
+        showBanner("战报已生成。", "info");
+      } catch (err) {
+        els.reportEmpty.classList.remove("hidden");
+        showBanner(err.message || String(err), "error");
+      } finally {
+        els.analyzeLoading.classList.add("hidden");
+        els.analyzeBtn.disabled = false;
+        els.refreshBtn.disabled = false;
+      }
+    }
+
+    async function copyMarkdown() {
+      const text = els.markdown.textContent || "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showBanner("已复制成稿到剪贴板。", "info");
+      } catch (_) {
+        showBanner("复制失败，请手动选中成稿文本。", "error");
+      }
+    }
+
+    els.analyzeBtn.addEventListener("click", runAnalyze);
+    els.refreshBtn.addEventListener("click", loadSaves);
+    els.copyBtn.addEventListener("click", copyMarkdown);
+    loadSaves();
+  </script>
+</body>
+</html>

@@ -24,10 +24,11 @@
 
 ```bash
 git pull
-uv sync --extra llm --extra dev
+uv sync --extra llm --extra desktop --extra dev
 ```
 
 - `--extra llm`：OpenAI 兼容 HTTP 客户端（`httpx`；Gemini 也走同一套）
+- `--extra desktop`：桌面窗口（`pywebview`）；双击启动器用
 - `--extra dev`：pytest 等开发依赖
 
 ## 配置存档目录
@@ -146,8 +147,42 @@ uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --verbose
 ```bash
 uv run eu4-chronicle list-saves
 uv run eu4-chronicle serve
+# 浏览器打开 http://127.0.0.1:18765/ 即可选档出战报
 # POST /analyze  {"prev":"a.eu4","curr":"b.eu4","mode":"mock","include_global":false}
 ```
+
+## 桌面使用（双击）
+
+真正的桌面窗口：启动后自动拉起本机 FastAPI（`127.0.0.1:18765`），关闭窗口即停服。界面可选两份存档、选 mock/llm、生成并复制成稿。
+
+**API Key 不在 UI 里配置**，只读项目根目录 `.env` / 环境变量（与 CLI 相同）。
+
+### 一次性准备
+
+```bash
+cd <本仓库根目录>
+cp .env.example .env
+# 编辑 .env：按需填 EU4_SAVE_DIR、以及 llm 模式所需的 OPENAI_* 
+uv sync --extra desktop --extra llm
+```
+
+### Windows 双击
+
+1. 在资源管理器中打开仓库的 `scripts\` 目录
+2. 双击 `EU4战报.bat`（会先 `uv sync`，再打开窗口）
+3. 若要放到桌面：右键该 bat →「发送到」→「桌面快捷方式」；快捷方式属性里「起始位置」保持仓库根亦可（脚本自身会 `cd` 到仓库根）
+
+也可在仓库根手动启动：
+
+```bash
+uv run eu4-chronicle-desktop
+```
+
+### 验收要点
+
+- 双击后出现「EU4 战报」窗口，能列出存档
+- mock / llm 均可出成稿（llm 需已配 `.env` Key）
+- 关闭窗口后，本机 `18765` 端口应释放（若该端口原先已被 `eu4-chronicle serve` 占用，桌面端会复用已有服务且关窗不杀它）
 
 ## 限制
 
@@ -160,7 +195,7 @@ uv run eu4-chronicle serve
 ## 开发与测试
 
 ```bash
-uv sync --extra llm --extra dev
+uv sync --extra llm --extra desktop --extra dev
 uv run pytest
 ```
 
@@ -179,6 +214,10 @@ src/eu4_chronicle/
   pipeline.py
   cli.py
   server.py
+  desktop.py   # pywebview 桌面壳（optional extra: desktop）
+  static/      # 选档 / 出战报前端
+scripts/
+  EU4战报.bat  # Windows 双击启动
 samples/
 tests/
 ```
