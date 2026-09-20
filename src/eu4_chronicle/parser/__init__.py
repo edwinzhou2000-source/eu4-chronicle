@@ -471,7 +471,7 @@ def format_war_score_dump(state: GameState, *, player_only: bool = True) -> str:
         lines.append(
             f"resolved_ticking_attacker={w.ticking_attacker_score}"
             f"  source={w.ticking_score_source}"
-            f"  # ← 战争目标 ticking（非总战分）"
+            f"  # ← 战争目标加分 / ticking（约 -25～+25）"
         )
         if player:
             lines.append(f"score_for(player)={w.score_for(player)}  # 玩家视角总战分")

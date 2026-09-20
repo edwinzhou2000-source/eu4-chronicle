@@ -16,6 +16,7 @@ from eu4_chronicle.names import NameResolver, default_resolver
 from eu4_chronicle.warscore import (
     WarAssessment,
     assess_player_wars,
+    format_ticking_bonus,
     tier_phrase,
     war_guidance_lines,
 )
@@ -337,7 +338,7 @@ def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
     """战争目标 / 占领 / 战役等档内细节（有则写）。ticking 至多一句。"""
     bits: list[str] = []
     if s.ticking_score is not None:
-        bits.append(f"目标 ticking {s.ticking_score:+.0f}（非总战分）")
+        bits.append(format_ticking_bonus(s.ticking_score))
     if s.war_goal_type or s.casus_belli:
         goal = names.war_goal(s.war_goal_type) if s.war_goal_type else "未知目标"
         cb = f"（CB {names.casus_belli(s.casus_belli)}）" if s.casus_belli else ""
@@ -536,7 +537,8 @@ def make_brief(
         "## 成稿禁词（空话）",
         "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
         "- 禁止：「下一页…」「按…事实推进」等收束套话。",
-        "- ticking 叙事与要点各至多一句（统一「目标 ticking ±N（非总战分）」）。",
+        "- 战争目标加分叙事与要点各至多一句（统一「战争目标加分 ±N（约 -25～+25）」）；"
+        "正面解释目标达成程度，勿写元注释免责声明。",
         "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技等。",
         "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
     ]

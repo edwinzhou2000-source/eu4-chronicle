@@ -212,12 +212,13 @@ def test_mock_ticking_dedup_and_no_next_page_fluff():
     narrative = _mock_narrative_paragraph(diff, names, ae)
     war = _mock_war_section(diff, names, ae, heading=False)
 
-    assert narrative.lower().count("ticking") == 1
-    assert war.lower().count("ticking") == 1
-    assert "目标 ticking +17（非总战分）" in narrative
-    assert "目标 ticking +17（非总战分）" in war
-    assert "战争目标 ticking +17" not in narrative
-    assert narrative.count("战争目标 ticking") == 0
+    assert narrative.count("战争目标加分") == 1
+    assert war.count("战争目标加分") == 1
+    assert "战争目标加分 +17（约 -25～+25）" in narrative
+    assert "战争目标加分 +17（约 -25～+25）" in war
+    assert "不作胶着依据" not in md
+    assert "非总战分" not in md
+    assert "目标 ticking" not in md
     assert "玩家总战分 +64，优势在握，基本打赢" in narrative
     assert "基本打赢（战分 +64）" not in narrative
     assert "下一页按战分" not in md
@@ -225,16 +226,18 @@ def test_mock_ticking_dedup_and_no_next_page_fluff():
     assert "下一页仍以 Diff 为准" not in md
     assert "下一页看附庸" not in md
     assert not contains_banned_empty_phrase(md), md
-    # 全稿 ticking：叙事一次 + 要点一次（标题/结尾不应再写）
+    # 全稿：叙事一次 + 要点一次（标题/结尾不应再写）
     sections = md.split("## ")
     narrative_block = next(s for s in sections if s.startswith("叙事"))
     war_block = next(s for s in sections if s.startswith("战局要点"))
-    assert narrative_block.lower().count("ticking") == 1
-    assert war_block.lower().count("ticking") == 1
-    # 结尾段不得含 ticking 或下一页套话
+    assert narrative_block.count("战争目标加分") == 1
+    assert war_block.count("战争目标加分") == 1
+    # 结尾段不得含战争目标加分或下一页套话
     ending = md.split("---")[-1]
+    assert "战争目标加分" not in ending
     assert "ticking" not in ending.lower()
     assert "下一页" not in ending
+    assert "-25～+25" in war
 
 
 def test_mock_has_no_banned_empty_phrases():
