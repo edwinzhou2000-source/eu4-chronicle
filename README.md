@@ -177,24 +177,31 @@ cp -n .env.example .env   # 已有 .env 可跳过
 uv sync --extra desktop --extra llm
 ```
 
-**装快捷方式（只需一次）：**
+**装快捷方式（只需一次；可重复执行覆盖）：**
 
 ```bash
 cd ~/genesis && bash scripts/install-desktop-shortcut.sh
 ```
 
-会在 **Windows 真实桌面**写出：
+会在 **Windows 真实桌面**写出（或覆盖）：
 
 `C:\Users\<你>\Desktop\EU4战报.cmd`  
-（不是 `\\wsl$\...` 路径）
+（不是 `\\wsl$\...` 路径；安装脚本会把**当前仓库绝对路径**写进快捷方式）
 
-之后**只双击桌面上的「EU4战报.cmd」**。它会调用 `wsl.exe` 进入你的发行版，再 `uv run eu4-chronicle-desktop`。
+之后**只双击桌面上的「EU4战报.cmd」**。期望：
+
+- 弹出黑色控制台并**保持打开**，打印发行版/仓库路径
+- 经 `wsl.exe` 启动后打开选档页（浏览器或窗口）
+- **失败**时黑框会中文报错并 `pause`（按任意键才关），不会秒闪消失
+- 用完在黑框按 Ctrl+C，或关黑框
 
 也可用 PowerShell（效果相同）：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-DesktopShortcut.ps1
 ```
+
+若曾装过旧版快捷方式并出现「闪一下就关」：请重新执行上面的安装命令覆盖桌面 `.cmd`，再双击。
 
 ### 临时用法（未装快捷方式时）
 
@@ -209,7 +216,8 @@ WSL / 无桌面窗时会走**系统浏览器**打开选档页（不崩）；回�
 ### 验收要点
 
 - 桌面出现 `EU4战报.cmd`（在 `C:\Users\...\Desktop\`，**不是** `\\wsl$\`）
-- 双击不被拦，能打开 UI、选档、出战报（mock / llm；llm 需 `.env` Key）
+- 双击后黑框保持打开；能打开 UI、选档、出战报（mock / llm；llm 需 `.env` Key）
+- 失败时黑框 `pause` 显示中文原因（发行版/路径/uv/依赖），不会秒关
 - 勿再从 `\\wsl$\` 点旧 bat；若仍看到「正常 / Store」对话框，说明点错了路径
 - 关闭后本机 `18765` 应释放（若原先已有 `eu4-chronicle serve`，桌面端会复用且退出不杀它）
 ## 限制
@@ -246,6 +254,7 @@ src/eu4_chronicle/
   static/      # 选档 / 出战报前端
 scripts/
   install-desktop-shortcut.sh / Install-DesktopShortcut.ps1  # 写入 Windows 桌面 EU4战报.cmd
+  launch-desktop-from-windows.sh  # 桌面 .cmd 经 wsl 调用的启动器（补 PATH / 查 uv）
   EU4战报.bat / EU4战报.cmd  # 旧路径（仓库在 NTFS 时可用；勿从 \\wsl$ 双击）
 samples/
 tests/

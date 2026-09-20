@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -21,9 +22,14 @@ from eu4_chronicle.server import app as fastapi_app
 _server: Optional[uvicorn.Server] = None
 _thread: Optional[threading.Thread] = None
 
-_BROWSER_HINT = (
+_BROWSER_HINT_TTY = (
     "在 WSL / 无桌面窗环境下无法打开原生窗口，已用系统浏览器打开选档页；"
     "回车或 Ctrl+C 退出并停服。"
+)
+_BROWSER_HINT_NOTTY = (
+    "在 WSL / 无桌面窗环境下无法打开原生窗口，已用系统浏览器打开选档页；"
+    "本窗口请保持打开（非交互启动时不能靠回车结束）。"
+    "按 Ctrl+C 或关闭本窗口以退出并停服。"
 )
 _WSL_HINT = (
     "检测到 WSL。请先执行一次：bash scripts/install-desktop-shortcut.sh，"
@@ -131,19 +137,63 @@ def start_webview(ui_url: str) -> None:
     webview.start()
 
 
+def _stdin_is_tty() -> bool:
+    try:
+        return bool(sys.stdin is not None and sys.stdin.isatty())
+    except Exception:  # noqa: BLE001 — 极端环境 isatty 也可能炸
+        return False
+
+
+def open_ui_url(ui_url: str, *, wsl: bool | None = None) -> None:
+    """打开选档页。WSL 优先用 Windows 默认浏览器（cmd start），失败再 webbrowser。"""
+    if wsl is None:
+        wsl = is_wsl()
+    if wsl:
+        try:
+            subprocess.run(
+                ["cmd.exe", "/c", "start", "", ui_url],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        except OSError:
+            pass
+    webbrowser.open(ui_url)
+
+
+def wait_until_user_stop() -> None:
+    """阻塞到用户结束。
+
+    交互终端：回车或 Ctrl+C。
+    非交互（桌面 .cmd → wsl.exe）：stdin 常立刻 EOF，不能靠 input()，改睡等 Ctrl+C。
+    """
+    if _stdin_is_tty():
+        print(_BROWSER_HINT_TTY)
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            print()
+        return
+
+    print(_BROWSER_HINT_NOTTY)
+    try:
+        while True:
+            time.sleep(3600.0)
+    except KeyboardInterrupt:
+        print()
+
+
 def run_browser_fallback(ui_url: str, *, owned: bool, wsl: bool | None = None) -> None:
     """无原生窗时：打开系统浏览器并阻塞到用户结束，再按需停服。"""
     if wsl is None:
         wsl = is_wsl()
     if wsl:
         print(_WSL_HINT, file=sys.stderr)
-    webbrowser.open(ui_url)
-    print(_BROWSER_HINT)
+    open_ui_url(ui_url, wsl=wsl)
     print(f"选档页：{ui_url}")
     try:
-        input()
-    except (EOFError, KeyboardInterrupt):
-        print()
+        wait_until_user_stop()
     finally:
         if owned:
             _stop_server()

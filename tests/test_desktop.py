@@ -105,9 +105,9 @@ def test_run_browser_fallback_blocks_and_stops(monkeypatch: pytest.MonkeyPatch) 
     stopped: list[bool] = []
     printed: list[str] = []
 
-    monkeypatch.setattr(desktop.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(desktop, "open_ui_url", lambda url, *, wsl=None: opened.append(url))
     monkeypatch.setattr(desktop, "_stop_server", lambda: stopped.append(True))
-    monkeypatch.setattr("builtins.input", lambda: "")
+    monkeypatch.setattr(desktop, "wait_until_user_stop", lambda: None)
     monkeypatch.setattr(
         "builtins.print",
         lambda *a, **k: printed.append(" ".join(str(x) for x in a)),
@@ -117,8 +117,44 @@ def test_run_browser_fallback_blocks_and_stops(monkeypatch: pytest.MonkeyPatch) 
     assert opened == ["http://127.0.0.1:18765/"]
     assert stopped == [True]
     joined = "\n".join(printed)
-    assert "浏览器" in joined
-    assert "WSL" in joined
+    assert "选档页" in joined
+
+
+def test_wait_until_user_stop_tty_uses_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(desktop, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda: called.append("in") or "")
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+    desktop.wait_until_user_stop()
+    assert called == ["in"]
+
+
+def test_wait_until_user_stop_notty_sleeps_until_interrupt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+
+    def fake_sleep(secs: float) -> None:
+        sleeps.append(secs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(desktop, "_stdin_is_tty", lambda: False)
+    monkeypatch.setattr(desktop.time, "sleep", fake_sleep)
+    monkeypatch.setattr("builtins.print", lambda *a, **k: None)
+    desktop.wait_until_user_stop()
+    assert sleeps == [3600.0]
+
+
+def test_open_ui_url_wsl_uses_cmd_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    runs: list[object] = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+    desktop.open_ui_url("http://127.0.0.1:18765/", wsl=True)
+    assert runs == [["cmd.exe", "/c", "start", "", "http://127.0.0.1:18765/"]]
 
 
 def test_main_uses_browser_when_prefer_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

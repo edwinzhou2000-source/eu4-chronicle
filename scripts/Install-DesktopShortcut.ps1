@@ -1,22 +1,17 @@
 #Requires -Version 5.0
 <#
 .SYNOPSIS
-  在 Windows 真实桌面（%USERPROFILE%\Desktop）写入「EU4战报.cmd」。
+  在 Windows 真实桌面（%USERPROFILE%\Desktop）写入「EU4战报.cmd」（可重复覆盖）。
 
 .DESCRIPTION
-  解决仓库在 WSL 时，双击 \\wsl$\... 下 bat 被拦 / 「如何打开」选「正常」无反应的问题。
-  生成的 .cmd 从 Windows 调用 wsl.exe，在发行版内 uv run eu4-chronicle-desktop。
-  API Key 仍只读仓库 .env，本脚本不处理密钥。
+  生成的 .cmd 经 wsl.exe 调用仓库内 scripts/launch-desktop-from-windows.sh。
+  失败会 pause 并打印中文原因；成功时黑框保持到进程结束。
 
 .PARAMETER RepoPath
-  WSL 内仓库绝对路径（如 /home/edwin/genesis）。省略时尝试从脚本位置推断，
-  再退到 $HOME/genesis。
+  WSL 内仓库绝对路径。省略时从脚本位置 / $HOME/genesis 推断。
 
 .PARAMETER Distro
-  WSL 发行版名。省略时用 $env:WSL_DISTRO_NAME，再退到 wsl -l -q 的默认项。
-
-.EXAMPLE
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-DesktopShortcut.ps1
+  WSL 发行版名。省略时用 $env:WSL_DISTRO_NAME 或 wsl 默认项。
 #>
 [CmdletBinding()]
 param(
@@ -31,11 +26,20 @@ function Get-DefaultWslDistro {
   if ($env:WSL_DISTRO_NAME) {
     return $env:WSL_DISTRO_NAME.Trim()
   }
-  $raw = & wsl.exe -l -q 2>$null
-  if (-not $raw) {
+  $raw = & wsl.exe -l -v 2>$null
+  if ($raw) {
+    foreach ($line in @($raw)) {
+      $t = ($line -replace "`0", "").Trim()
+      if ($t -match '^\*\s*(\S+)') {
+        return $Matches[1]
+      }
+    }
+  }
+  $q = & wsl.exe -l -q 2>$null
+  if (-not $q) {
     throw "未检测到 WSL 发行版。请先安装并启用 WSL，再重试。"
   }
-  $lines = @($raw | ForEach-Object {
+  $lines = @($q | ForEach-Object {
       ($_ -replace "`0", "").Trim()
     } | Where-Object { $_ })
   if (-not $lines) {
@@ -87,10 +91,10 @@ if (-not $RepoPath) {
   throw "无法推断仓库路径。请传入 -RepoPath /home/<你>/genesis"
 }
 
-$check = & wsl.exe -d $Distro -e bash -lc "test -f '$RepoPath/pyproject.toml' && echo OK" 2>$null
+$check = & wsl.exe -d $Distro -e bash -lc "test -f '$RepoPath/pyproject.toml' && test -f '$RepoPath/scripts/launch-desktop-from-windows.sh' && echo OK" 2>$null
 $checkText = if ($check) { ($check -replace "`0", "").Trim() } else { "" }
 if ($checkText -ne "OK") {
-  throw "发行版 '$Distro' 中找不到仓库：$RepoPath（缺少 pyproject.toml）。请用 -RepoPath 指定。"
+  throw "发行版 '$Distro' 中找不到仓库或 launch 脚本：$RepoPath"
 }
 
 $desktop = [Environment]::GetFolderPath("Desktop")
@@ -98,29 +102,68 @@ if (-not $desktop -or -not (Test-Path $desktop)) {
   $desktop = Join-Path $env:USERPROFILE "Desktop"
 }
 if (-not (Test-Path $desktop)) {
+  $onedrive = Join-Path $env:USERPROFILE "OneDrive\Desktop"
+  if (Test-Path $onedrive) { $desktop = $onedrive }
+}
+if (-not (Test-Path $desktop)) {
   throw "找不到 Windows 桌面目录：$desktop"
 }
 
 $cmdPath = Join-Path $desktop "EU4战报.cmd"
-$bashLc = "cd '$RepoPath' && uv run eu4-chronicle-desktop"
 $cmdBody = @"
 @echo off
-REM 由 Install-DesktopShortcut.ps1 生成 — 请双击本文件（位于 Windows 桌面，非 \\wsl$）
-REM 仓库: $RepoPath  发行版: $Distro
+setlocal EnableExtensions
+chcp 65001 >nul 2>&1
 title EU4 战报
-wsl.exe -d $Distro -e bash -lc "$bashLc"
+echo ========================================
+echo   EU4 战报 — 经 WSL 启动
+echo ========================================
+echo 发行版: $Distro
+echo 仓库:   $RepoPath
+echo.
+echo 请保持本窗口打开，直到选档页出现。
+echo 结束请在本窗口按 Ctrl+C，或关闭本窗口。
+echo.
+
+where wsl.exe >nul 2>nul
 if errorlevel 1 (
+  echo [错误] 找不到 wsl.exe。请先启用 Windows 的 WSL。
   echo.
-  echo 启动失败。请确认：WSL 可用、已 uv sync --extra desktop --extra llm、仓库 .env 已配置。
   pause
+  exit /b 1
 )
+
+wsl.exe -d $Distro -e bash -lc "export EU4_REPO_PATH='$RepoPath'; cd '$RepoPath' || exit 10; exec bash './scripts/launch-desktop-from-windows.sh'"
+set "ERR=%ERRORLEVEL%"
+
+echo.
+if not "%ERR%"=="0" (
+  echo [失败] WSL 启动退出码 %ERR%。
+  echo 常见原因：
+  echo   1. 发行版名不对（当前: $Distro）
+  echo   2. 仓库路径不对（当前: $RepoPath）
+  echo   3. WSL 里没有 uv（需装到 ~/.local/bin）
+  echo   4. 未 uv sync --extra desktop --extra llm
+  echo.
+  echo 请在 WSL 重装快捷方式：
+  echo   cd '$RepoPath' ^&^& bash scripts/install-desktop-shortcut.sh
+  echo.
+  pause
+  exit /b %ERR%
+)
+
+echo [结束] 进程已退出。若选档页未打开，请手动访问 http://127.0.0.1:18765/
+echo.
+pause
+endlocal
 "@
 
 Set-Content -Path $cmdPath -Value $cmdBody -Encoding ASCII
+try { Unblock-File -LiteralPath $cmdPath -ErrorAction SilentlyContinue } catch {}
 
-Write-Host "已写入桌面快捷方式："
+Write-Host "已写入/覆盖桌面快捷方式："
 Write-Host "  $cmdPath"
 Write-Host "发行版: $Distro"
 Write-Host "仓库:   $RepoPath"
 Write-Host ""
-Write-Host "请只双击桌面上的「EU4战报.cmd」，不要再从 \\wsl$ 路径点 bat。"
+Write-Host "请只双击桌面上的「EU4战报.cmd」。失败会 pause；成功时黑框保持到选档页出现。"
