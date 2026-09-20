@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   生成的 .cmd 经 wsl.exe 调用仓库内 scripts/launch-desktop-from-windows.sh。
-  失败会 pause 并打印中文原因；成功时黑框保持到进程结束。
+  .cmd 正文为 ASCII 英文 + CRLF（避免中文 Windows GBK 乱码）；失败会 pause。
 
 .PARAMETER RepoPath
   WSL 内仓库绝对路径。省略时从脚本位置 / $HOME/genesis 推断。
@@ -110,60 +110,68 @@ if (-not (Test-Path $desktop)) {
 }
 
 $cmdPath = Join-Path $desktop "EU4战报.cmd"
-$cmdBody = @"
-@echo off
-setlocal EnableExtensions
-chcp 65001 >nul 2>&1
-title EU4 战报
-echo ========================================
-echo   EU4 战报 — 经 WSL 启动
-echo ========================================
-echo 发行版: $Distro
-echo 仓库:   $RepoPath
-echo.
-echo 请保持本窗口打开，直到选档页出现。
-echo 结束请在本窗口按 Ctrl+C，或关闭本窗口。
-echo.
-
-where wsl.exe >nul 2>nul
-if errorlevel 1 (
-  echo [错误] 找不到 wsl.exe。请先启用 Windows 的 WSL。
-  echo.
-  pause
-  exit /b 1
+# Desktop .cmd MUST be ASCII-only + CRLF (Chinese Windows cmd = GBK/CP936).
+$cmdLines = @(
+  '@echo off'
+  'setlocal EnableExtensions'
+  'title EU4 Chronicle'
+  'echo ========================================'
+  'echo   EU4 Chronicle - launch via WSL'
+  'echo ========================================'
+  "echo Distro: $Distro"
+  "echo Repo:   $RepoPath"
+  'echo.'
+  'echo Keep this window open until the UI opens.'
+  'echo Stop with Ctrl+C in this window, or close it.'
+  'echo.'
+  ''
+  'where wsl.exe >nul 2>nul'
+  'if errorlevel 1 ('
+  '  echo [ERROR] wsl.exe not found. Enable WSL on Windows first.'
+  '  echo.'
+  '  pause'
+  '  exit /b 1'
+  ')'
+  ''
+  "wsl.exe -d $Distro -e bash -lc `"export EU4_REPO_PATH='$RepoPath'; cd '$RepoPath' || exit 10; exec bash './scripts/launch-desktop-from-windows.sh'`""
+  'set "ERR=%ERRORLEVEL%"'
+  ''
+  'echo.'
+  'if not "%ERR%"=="0" ('
+  '  echo [FAILED] WSL exited with code %ERR%.'
+  '  echo Common causes:'
+  "  echo   1. Wrong distro name (now: $Distro)"
+  "  echo   2. Wrong repo path (now: $RepoPath)"
+  '  echo   3. uv missing in WSL (install to ~/.local/bin)'
+  '  echo   4. Need: uv sync --extra desktop --extra llm'
+  '  echo.'
+  '  echo Reinstall shortcut from WSL:'
+  "  echo   cd '$RepoPath' ^&^& bash scripts/install-desktop-shortcut.sh"
+  '  echo.'
+  '  pause'
+  '  exit /b %ERR%'
+  ')'
+  ''
+  'echo [DONE] Process exited. If UI did not open, open http://127.0.0.1:18765/'
+  'echo.'
+  'pause'
+  'endlocal'
 )
+$cmdBody = ($cmdLines -join "`r`n") + "`r`n"
 
-wsl.exe -d $Distro -e bash -lc "export EU4_REPO_PATH='$RepoPath'; cd '$RepoPath' || exit 10; exec bash './scripts/launch-desktop-from-windows.sh'"
-set "ERR=%ERRORLEVEL%"
+foreach ($ch in $cmdBody.ToCharArray()) {
+  if ([int]$ch -gt 127) {
+    throw "Generated .cmd contains non-ASCII character; aborting write."
+  }
+}
 
-echo.
-if not "%ERR%"=="0" (
-  echo [失败] WSL 启动退出码 %ERR%。
-  echo 常见原因：
-  echo   1. 发行版名不对（当前: $Distro）
-  echo   2. 仓库路径不对（当前: $RepoPath）
-  echo   3. WSL 里没有 uv（需装到 ~/.local/bin）
-  echo   4. 未 uv sync --extra desktop --extra llm
-  echo.
-  echo 请在 WSL 重装快捷方式：
-  echo   cd '$RepoPath' ^&^& bash scripts/install-desktop-shortcut.sh
-  echo.
-  pause
-  exit /b %ERR%
-)
-
-echo [结束] 进程已退出。若选档页未打开，请手动访问 http://127.0.0.1:18765/
-echo.
-pause
-endlocal
-"@
-
-Set-Content -Path $cmdPath -Value $cmdBody -Encoding ASCII
+$ascii = [System.Text.Encoding]::ASCII
+[System.IO.File]::WriteAllText($cmdPath, $cmdBody, $ascii)
 try { Unblock-File -LiteralPath $cmdPath -ErrorAction SilentlyContinue } catch {}
 
-Write-Host "已写入/覆盖桌面快捷方式："
+Write-Host "Wrote/overwrote Desktop shortcut (ASCII English .cmd body):"
 Write-Host "  $cmdPath"
-Write-Host "发行版: $Distro"
-Write-Host "仓库:   $RepoPath"
+Write-Host "Distro: $Distro"
+Write-Host "Repo:   $RepoPath"
 Write-Host ""
-Write-Host "请只双击桌面上的「EU4战报.cmd」。失败会 pause；成功时黑框保持到选档页出现。"
+Write-Host "Double-click Desktop EU4战报.cmd only. Console messages are English; pause on failure."

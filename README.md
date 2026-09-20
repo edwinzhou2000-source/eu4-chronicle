@@ -190,9 +190,9 @@ cd ~/genesis && bash scripts/install-desktop-shortcut.sh
 
 之后**只双击桌面上的「EU4战报.cmd」**。期望：
 
-- 弹出黑色控制台并**保持打开**，打印发行版/仓库路径
+- 弹出黑色控制台并**保持打开**（控制台提示为**英文**，避免中文 Windows GBK 乱码拆行）
 - 经 `wsl.exe` 启动后打开选档页（浏览器或窗口）
-- **失败**时黑框会中文报错并 `pause`（按任意键才关），不会秒闪消失
+- **失败**时黑框英文报错并 `pause`（按任意键才关），不会秒闪消失
 - 用完在黑框按 Ctrl+C，或关黑框
 
 也可用 PowerShell（效果相同）：
@@ -201,7 +201,7 @@ cd ~/genesis && bash scripts/install-desktop-shortcut.sh
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-DesktopShortcut.ps1
 ```
 
-若曾装过旧版快捷方式并出现「闪一下就关」：请重新执行上面的安装命令覆盖桌面 `.cmd`，再双击。
+若曾装过旧版快捷方式并出现乱码 /「不是内部或外部命令」/「闪一下就关」：请 `git pull` 后重新执行上面的安装命令覆盖桌面 `.cmd`，再双击。
 
 ### 临时用法（未装快捷方式时）
 

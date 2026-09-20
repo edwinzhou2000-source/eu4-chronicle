@@ -69,25 +69,29 @@ cmd_path="$desktop_wsl/EU4战报.cmd"
 repo_q="${REPO_PATH//\'/\'\\\'\'}"
 launcher="scripts/launch-desktop-from-windows.sh"
 
-# 生成的 .cmd：失败必 pause；成功时由 WSL 内进程阻塞，黑框保持到结束后再 pause
-cat > "$cmd_path" <<EOF
+# Desktop .cmd MUST be ASCII-only + CRLF.
+# Chinese Windows cmd.exe defaults to GBK/CP936; UTF-8 Chinese becomes mojibake
+# and splits lines so fragments are executed as commands.
+# Keep Chinese in this installer stdout / README only — never inside the .cmd body.
+tmp_cmd="$(mktemp)"
+# LF here; convert to CRLF below. All bytes must be ASCII.
+cat > "$tmp_cmd" <<EOF
 @echo off
 setlocal EnableExtensions
-chcp 65001 >nul 2>&1
-title EU4 战报
+title EU4 Chronicle
 echo ========================================
-echo   EU4 战报 — 经 WSL 启动
+echo   EU4 Chronicle - launch via WSL
 echo ========================================
-echo 发行版: ${DISTRO}
-echo 仓库:   ${REPO_PATH}
+echo Distro: ${DISTRO}
+echo Repo:   ${REPO_PATH}
 echo.
-echo 请保持本窗口打开，直到选档页出现。
-echo 结束请在本窗口按 Ctrl+C，或关闭本窗口。
+echo Keep this window open until the UI opens.
+echo Stop with Ctrl+C in this window, or close it.
 echo.
 
 where wsl.exe >nul 2>nul
 if errorlevel 1 (
-  echo [错误] 找不到 wsl.exe。请先启用 Windows 的 WSL。
+  echo [ERROR] wsl.exe not found. Enable WSL on Windows first.
   echo.
   pause
   exit /b 1
@@ -98,25 +102,37 @@ set "ERR=%ERRORLEVEL%"
 
 echo.
 if not "%ERR%"=="0" (
-  echo [失败] WSL 启动退出码 %ERR%。
-  echo 常见原因：
-  echo   1. 发行版名不对（当前: ${DISTRO}）
-  echo   2. 仓库路径不对（当前: ${REPO_PATH}）
-  echo   3. WSL 里没有 uv（需装到 ~/.local/bin）
-  echo   4. 未 uv sync --extra desktop --extra llm
+  echo [FAILED] WSL exited with code %ERR%.
+  echo Common causes:
+  echo   1. Wrong distro name (now: ${DISTRO})
+  echo   2. Wrong repo path (now: ${REPO_PATH})
+  echo   3. uv missing in WSL (install to ~/.local/bin)
+  echo   4. Need: uv sync --extra desktop --extra llm
   echo.
-  echo 请在 WSL 重装快捷方式：
+  echo Reinstall shortcut from WSL:
   echo   cd '${repo_q}' ^&^& bash scripts/install-desktop-shortcut.sh
   echo.
   pause
   exit /b %ERR%
 )
 
-echo [结束] 进程已退出。若选档页未打开，请手动访问 http://127.0.0.1:18765/
+echo [DONE] Process exited. If UI did not open, open http://127.0.0.1:18765/
 echo.
 pause
 endlocal
 EOF
+
+# Validate ASCII (reject any non-ASCII so GBK mangling cannot recur)
+non_ascii="$(LC_ALL=C tr -d '\0-\177' < "$tmp_cmd" | wc -c | tr -d ' ')"
+if [[ "${non_ascii}" != "0" ]]; then
+  echo "错误：生成的 .cmd 含非 ASCII 字符，已中止写入。" >&2
+  rm -f "$tmp_cmd"
+  exit 1
+fi
+
+# Write CRLF (pure ASCII)
+sed 's/$/\r/' "$tmp_cmd" > "$cmd_path"
+rm -f "$tmp_cmd"
 
 if command -v powershell.exe >/dev/null 2>&1; then
   cmd_win="$(wslpath -w "$cmd_path" 2>/dev/null || true)"
@@ -127,10 +143,10 @@ if command -v powershell.exe >/dev/null 2>&1; then
   fi
 fi
 
-echo "已写入/覆盖桌面快捷方式："
+echo "已写入/覆盖桌面快捷方式（.cmd 正文为 ASCII 英文，避免 GBK 乱码）："
 echo "  ${desktop_win}\\EU4战报.cmd"
 echo "  （WSL 可见：${cmd_path}）"
 echo "发行版: ${DISTRO}"
 echo "仓库:   ${REPO_PATH}"
 echo
-echo "请只双击桌面上的「EU4战报.cmd」。黑框应保持到选档页出现；失败会 pause 显示原因。"
+echo "请只双击桌面上的「EU4战报.cmd」。黑框应为英文提示；失败会 pause。"
