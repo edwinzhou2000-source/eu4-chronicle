@@ -262,7 +262,8 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — 任意 GUI 后端失败都回退
         print(
             f"桌面窗口启动失败（{exc}）。已改用系统浏览器。\n"
-            "Windows 请用资源管理器双击 scripts\\EU4战报.bat；"
+            "请双击 Windows 桌面上的「EU4战报.cmd」"
+            "（先 bash scripts/install-desktop-shortcut.sh）；"
             "WSL 请勿在此环境强开 pywebview。",
             file=sys.stderr,
         )
