@@ -26,8 +26,8 @@ _BROWSER_HINT = (
     "回车或 Ctrl+C 退出并停服。"
 )
 _WSL_HINT = (
-    "检测到 WSL。请优先用 Windows 资源管理器双击 scripts\\EU4战报.bat（或 EU4战报.cmd），"
-    "不要在 WSL 里 uv run eu4-chronicle-desktop。"
+    "检测到 WSL。请先执行一次：bash scripts/install-desktop-shortcut.sh，"
+    "然后只双击 Windows 桌面上的「EU4战报.cmd」（勿从 \\\\wsl$ 路径点 bat）。"
 )
 
 

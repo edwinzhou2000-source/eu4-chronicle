@@ -153,50 +153,65 @@ uv run eu4-chronicle serve
 
 ## 桌面使用（双击）
 
-真正的桌面窗口：启动后自动拉起本机 FastAPI（`127.0.0.1:18765`），关闭窗口即停服。界面可选两份存档、选 mock/llm、生成并复制成稿。
+启动后自动拉起本机 FastAPI（`127.0.0.1:18765`），界面可选两份存档、选 mock/llm、生成并复制成稿。关窗（或浏览器回退退出）即停服。
 
 **API Key 不在 UI 里配置**，只读项目根目录 `.env` / 环境变量（与 CLI 相同）。
 
-> **请用 Windows 资源管理器双击 `scripts\EU4战报.bat`（或 `EU4战报.cmd`）。**  
-> **不要在 WSL 里执行 bat，也不要在 WSL 里 `uv run eu4-chronicle-desktop`。**  
-> 在 WSL / 无桌面窗环境下，pywebview 会因缺少 GTK/`gi` 失败；程序会改用系统浏览器打开选档页，并打印中文说明——回车或 Ctrl+C 退出并停服。原生 Win32 窗口请走资源管理器双击（WebView2 / edgechromium）。
+### 重要：不要从 `\\wsl$\` 双击
 
-### 一次性准备
+仓库若在 WSL（如 `/home/.../genesis`），用资源管理器打开 `\\wsl$\...` 再双击 `scripts\EU4战报.bat` **会失败**：
 
-在 **Windows**（PowerShell / cmd，或资源管理器双击 bat 时自动 sync）执行：
+- 常弹出「如何打开此文件」→ 只有「正常」与「从 Microsoft Store 获得应用」
+- 选「正常」后**完全无反应**（无窗口、无黑框）
 
-```bat
-cd <本仓库根目录>
-copy .env.example .env
-REM 编辑 .env：按需填 EU4_SAVE_DIR、以及 llm 模式所需的 OPENAI_*
+这是 **Windows 拦 `\\wsl$` 下的脚本**，不是战报程序坏了。`scripts\EU4战报.bat` 仅留给「仓库本身在 Windows NTFS」的旧用法；WSL 用户请改用下面的桌面快捷方式。
+
+### 推荐：装一次桌面快捷方式（WSL）
+
+先确保依赖与 `.env`（Key 只写这里）：
+
+```bash
+cd ~/genesis   # 或你的仓库路径
+cp -n .env.example .env   # 已有 .env 可跳过
+# 编辑 .env：EU4_SAVE_DIR、以及 llm 所需 OPENAI_*
 uv sync --extra desktop --extra llm
 ```
 
-仓库若在 WSL 路径（如 `/home/.../genesis`），请在资源管理器打开 `\\wsl$\<发行版>\home\...\genesis\scripts\` 再双击 bat，以便调用 **Windows** 的 `uv` / Python。
+**装快捷方式（只需一次）：**
 
-### Windows 双击
-
-1. 在资源管理器中打开仓库的 `scripts\` 目录
-2. 双击 `EU4战报.bat` 或 `EU4战报.cmd`（会先 `uv sync`，再打开 WebView2 窗口）
-3. 若要放到桌面：右键该 bat →「发送到」→「桌面快捷方式」；快捷方式属性里「起始位置」保持仓库根亦可（脚本自身会 `cd` 到仓库根）
-
-仅在确认当前是 **Win32** Python 时，也可在仓库根手动启动：
-
-```bat
-uv run eu4-chronicle-desktop
+```bash
+cd ~/genesis && bash scripts/install-desktop-shortcut.sh
 ```
 
-### Linux / WSL
+会在 **Windows 真实桌面**写出：
 
-- **WSL**：优先仍用资源管理器双击上述 bat；若在 WSL 终端跑 `eu4-chronicle-desktop`，会检测 WSL 并**浏览器回退**（不崩），提示去 Windows 双击以获得原生窗。
-- **无 DISPLAY 的 Linux**：同样浏览器回退；有桌面且已装 GTK/`gi` 时才尝试 pywebview。
+`C:\Users\<你>\Desktop\EU4战报.cmd`  
+（不是 `\\wsl$\...` 路径）
+
+之后**只双击桌面上的「EU4战报.cmd」**。它会调用 `wsl.exe` 进入你的发行版，再 `uv run eu4-chronicle-desktop`。
+
+也可用 PowerShell（效果相同）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-DesktopShortcut.ps1
+```
+
+### 临时用法（未装快捷方式时）
+
+在 WSL 终端：
+
+```bash
+cd ~/genesis && uv run eu4-chronicle-desktop
+```
+
+WSL / 无桌面窗时会走**系统浏览器**打开选档页（不崩）；回车或 Ctrl+C 退出并停服。
 
 ### 验收要点
 
-- **Windows 资源管理器双击**：出现「EU4 战报」原生窗口（WebView2），能列出存档
-- **WSL 终端误跑**：不报 `No module named 'gi'` 崩掉；浏览器打开选档页；回车/Ctrl+C 后停服
-- mock / llm 均可出成稿（llm 需已配 `.env` Key）
-- 关闭窗口（或浏览器回退退出）后，本机 `18765` 端口应释放（若该端口原先已被 `eu4-chronicle serve` 占用，桌面端会复用已有服务且退出不杀它）
+- 桌面出现 `EU4战报.cmd`（在 `C:\Users\...\Desktop\`，**不是** `\\wsl$\`）
+- 双击不被拦，能打开 UI、选档、出战报（mock / llm；llm 需 `.env` Key）
+- 勿再从 `\\wsl$\` 点旧 bat；若仍看到「正常 / Store」对话框，说明点错了路径
+- 关闭后本机 `18765` 应释放（若原先已有 `eu4-chronicle serve`，桌面端会复用且退出不杀它）
 ## 限制
 
 - **铁人存档**：第一期不支持
@@ -230,7 +245,8 @@ src/eu4_chronicle/
   desktop.py   # pywebview 桌面壳（optional extra: desktop）
   static/      # 选档 / 出战报前端
 scripts/
-  EU4战报.bat / EU4战报.cmd  # Windows 资源管理器双击（勿在 WSL 执行）
+  install-desktop-shortcut.sh / Install-DesktopShortcut.ps1  # 写入 Windows 桌面 EU4战报.cmd
+  EU4战报.bat / EU4战报.cmd  # 旧路径（仓库在 NTFS 时可用；勿从 \\wsl$ 双击）
 samples/
 tests/
 ```
