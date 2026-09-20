@@ -324,6 +324,14 @@ def _mock_narrative_paragraph(diff: DiffResult, names: NameResolver, ae: AeAsses
         elif e.kind == "development_changed":
             facts.append(f"发展度 {_fmt_num_change(e, digits=0)}")
 
+    # 战争军科对比（有双方数字才写；禁止无据臆测代差）
+    for e in diff.events:
+        if e.kind != "war_tech_compare":
+            continue
+        bit = _war_tech_compare_fact(e, names)
+        if bit:
+            facts.append(bit)
+
     if ae.has_change and ae.facts:
         facts.append("AE：" + "；".join(ae.facts[:2]))
 
@@ -366,6 +374,33 @@ def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
     return bits
 
 
+def _war_tech_compare_fact(e, names: NameResolver) -> str | None:
+    """有双方 mil 才成句；早期差 1 点明轻代差。"""
+    detail = e.detail or {}
+    if not detail.get("has_both_mil", True):
+        return None
+    player_mil = detail.get("player_mil")
+    foe_mil = detail.get("foe_mil")
+    if player_mil is None or foe_mil is None:
+        return None
+    player_l = detail.get("player_label") or names.country(detail.get("player") or e.tag)
+    foe_l = detail.get("foe_label") or names.country(detail.get("foe") or e.other_tag)
+    try:
+        gap = int(detail.get("mil_gap", int(player_mil) - int(foe_mil)))
+    except (TypeError, ValueError):
+        gap = int(player_mil) - int(foe_mil)
+    base = f"军事科技 {player_l} {player_mil} vs {foe_l} {foe_mil}"
+    early = bool(detail.get("early_game"))
+    if early and abs(gap) == 1:
+        lead = player_l if gap > 0 else foe_l
+        return f"{base}（{lead} 军科领先一级，属前期轻代差）"
+    if gap == 0:
+        return f"{base}（同档）"
+    if gap > 0:
+        return f"{base}（玩家领先 {gap} 级）"
+    return f"{base}（对手领先 {-gap} 级）"
+
+
 def _mock_war_section(
     diff: DiffResult, names: NameResolver, ae: AeAssessment, *, heading: bool
 ) -> str:
@@ -377,8 +412,9 @@ def _mock_war_section(
         if e.kind in {"army_changed", "navy_changed", "manpower_changed", "development_changed"}
         and e.tag == diff.player
     ]
+    tech_compares = [e for e in diff.events if e.kind == "war_tech_compare"]
     lines: list[str] = []
-    if not wars.standings and not army:
+    if not wars.standings and not army and not tech_compares:
         text = f"{player} 本区间未卷入可稽的大战，也无编制/人力跳变记录。"
         return f"### 战局要点\n{text}" if heading else text
 
@@ -398,6 +434,20 @@ def _mock_war_section(
             lines.append(f"- 战争「{wlabel}」：{att} vs {defe}；档内未解析到玩家战分")
         for bit in _war_standing_detail_bits(s, names):
             lines.append(f"  - {bit}")
+        # 同战争的军科对比挂在条目下
+        for e in tech_compares:
+            wname = (e.detail or {}).get("name") or (e.detail or {}).get("war")
+            if wname and wname != s.war_name:
+                continue
+            fact = _war_tech_compare_fact(e, names)
+            if fact:
+                lines.append(f"  - {fact}")
+    # 无 standings 时仍列出军科对比
+    if not wars.standings:
+        for e in tech_compares:
+            fact = _war_tech_compare_fact(e, names)
+            if fact:
+                lines.append(f"- {fact}")
     for e in army[:6]:
         lines.append(f"- {e.summary}")
 
@@ -418,6 +468,22 @@ def _mock_war_section(
             judge = "档内未解析到玩家战分，仅列参战方与编制事实，不作胜负判断。"
         if ae.warn_coalition:
             judge += f" 当前 AE 偏高（约 {ae.max_to:.0f}），忌另开第二战场。"
+        # 有军科领先时附一句
+        for e in tech_compares:
+            gap = (e.detail or {}).get("mil_gap")
+            early = bool((e.detail or {}).get("early_game"))
+            if gap is None:
+                continue
+            try:
+                g = int(gap)
+            except (TypeError, ValueError):
+                continue
+            if early and g == 1:
+                judge += " 军科领先一级（前期轻代差），利于以弱胜强。"
+                break
+            if early and g == -1:
+                judge += " 军科落后一级（前期轻代差），需慎战。"
+                break
         lines.append(f"- **研判**：{judge}")
     body = "\n".join(lines)
     return f"### 战局要点\n{body}" if heading else body
@@ -523,6 +589,7 @@ def make_brief(
     player = names.country(diff.player) if diff.player else "玩家"
     guide = ae_guidance_lines(ae, player_label=player, for_user=False)
     war_lines = war_guidance_lines(wars, country_label=names.country)
+    tech_lines = _tech_guidance_lines(diff)
     block = [
         "",
         "## AE 态势（供外交官/主编遵守，禁止编造恐吓；调试旁注勿写入成稿正文）",
@@ -534,6 +601,9 @@ def make_brief(
         "## 战争分数态势（供军师/史官/主编遵守）",
         *[f"- {g}" for g in war_lines],
         "",
+        "## 军事科技 / 代差（供军师/史官/主编遵守）",
+        *tech_lines,
+        "",
         "## 成稿禁词（空话）",
         "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
         "- 禁止：「下一页…」「按…事实推进」等收束套话。",
@@ -543,3 +613,44 @@ def make_brief(
         "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
     ]
     return base + "\n".join(block)
+
+
+def _tech_guidance_lines(diff: DiffResult) -> list[str]:
+    """brief 军科硬规则：无双方数字禁对比；早期差 1 可评轻代差。"""
+    from eu4_chronicle.agents.prompts import TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH
+
+    compares = [e for e in diff.events if e.kind == "war_tech_compare"]
+    lines: list[str] = []
+    if not compares:
+        lines.append(
+            "- 本 Diff **无双方军科对比数字**：禁止写「"
+            + " / ".join(TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH[:4])
+            + "」等；仅可写玩家 tech_changed（若有）。"
+        )
+        return lines
+
+    for e in compares:
+        detail = e.detail or {}
+        lines.append(f"- 事实：{e.summary}")
+        gap = detail.get("mil_gap")
+        early = bool(detail.get("early_game"))
+        if gap is None:
+            continue
+        try:
+            g = int(gap)
+        except (TypeError, ValueError):
+            continue
+        if g == 0:
+            lines.append("- 军科差 0：可写同档；禁止臆造代差。")
+        elif early and abs(g) == 1:
+            side = "玩家" if g > 0 else "对手"
+            lines.append(
+                f"- 早期且军科差 1：可写「{side}军科领先一级，属前期轻代差」；"
+                "禁止写代差尚未拉开 / 同档起步。"
+            )
+        else:
+            lines.append(f"- 军科差 {g:+d}：可据实点评，勿夸大。")
+    lines.append(
+        "- 硬性：没有 war_tech_compare / 双方 mil 数字时，禁止一切代差或同档对比句。"
+    )
+    return lines

@@ -2,7 +2,151 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.models import DiffEvent, DiffResult, GameState
+from eu4_chronicle.models import DiffEvent, DiffResult, GameState, WarState
+
+# 开局百年内：军科差 1 级可评「轻代差」
+EARLY_GAME_YEAR_CUTOFF = 1500
+
+
+def _parse_year(date: str | None) -> int | None:
+    if not date:
+        return None
+    try:
+        return int(str(date).split(".", 1)[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def is_early_game_date(date: str | None) -> bool:
+    """存档日期是否落在开局百年（约 <1500）。"""
+    year = _parse_year(date)
+    return year is not None and year < EARLY_GAME_YEAR_CUTOFF
+
+
+def _tech_levels(state: GameState, tag: str) -> dict[str, int] | None:
+    country = state.countries.get(tag)
+    if country is None:
+        return None
+    tech = country.technology or {}
+    mil = tech.get("mil_tech")
+    if mil is None:
+        return None
+    out: dict[str, int] = {"mil_tech": int(mil)}
+    for k in ("adm_tech", "dip_tech"):
+        if tech.get(k) is not None:
+            out[k] = int(tech[k])
+    return out
+
+
+def _war_side_leader(side: list[str]) -> str | None:
+    return side[0] if side else None
+
+
+def enrich_war_tech_snapshots(
+    events: list[DiffEvent],
+    *,
+    curr: GameState,
+    player: str,
+) -> list[DiffEvent]:
+    """从 curr GameState 注入玩家参战战争的军科对比（不靠 include-global）。
+
+    参战方至少含攻守战争领袖 + 玩家；缺双方 mil 则不生成，避免瞎评代差。
+    """
+    if not player:
+        return list(events)
+
+    out = list(events)
+    seen_wars: set[str] = set()
+    for e in events:
+        if e.kind == "war_tech_compare":
+            name = str((e.detail or {}).get("name") or (e.detail or {}).get("war") or "")
+            if name:
+                seen_wars.add(name)
+
+    early = is_early_game_date(curr.date)
+
+    for w in curr.wars:
+        compare = _war_tech_compare_event(w, curr=curr, player=player, early=early)
+        if compare is None:
+            continue
+        name = str(compare.detail.get("name") or "")
+        if name and name in seen_wars:
+            continue
+        if name:
+            seen_wars.add(name)
+        out.append(compare)
+    return out
+
+
+def _war_tech_compare_event(
+    w: WarState,
+    *,
+    curr: GameState,
+    player: str,
+    early: bool,
+) -> DiffEvent | None:
+    involved = set(w.attackers) | set(w.defenders)
+    if player not in involved:
+        return None
+
+    att_leader = _war_side_leader(w.attackers)
+    def_leader = _war_side_leader(w.defenders)
+    if player in w.attackers:
+        foe = def_leader
+    else:
+        foe = att_leader
+    if not foe or foe == player:
+        return None
+
+    snap_tags = [t for t in (att_leader, def_leader, player) if t]
+    # 去重保序
+    ordered: list[str] = list(dict.fromkeys(snap_tags))
+    levels: dict[str, dict[str, int]] = {}
+    for tag in ordered:
+        snap = _tech_levels(curr, tag)
+        if snap is not None:
+            levels[tag] = snap
+
+    player_levels = levels.get(player)
+    foe_levels = levels.get(foe)
+    if not player_levels or not foe_levels:
+        return None
+
+    player_mil = player_levels["mil_tech"]
+    foe_mil = foe_levels["mil_tech"]
+    mil_gap = player_mil - foe_mil  # 玩家相对对手
+
+    summary = f"军事科技：{player} {player_mil} vs {foe} {foe_mil}"
+    if early and abs(mil_gap) == 1:
+        lead = player if mil_gap > 0 else foe
+        summary += f"（早期轻代差，{lead} 领先 1 级）"
+    elif mil_gap == 0:
+        summary += "（同档）"
+
+    participants = list(dict.fromkeys([*w.attackers, *w.defenders]))
+    return DiffEvent(
+        kind="war_tech_compare",
+        tag=player,
+        other_tag=foe,
+        summary=summary,
+        detail={
+            "name": w.name,
+            "war": w.name,
+            "attackers": list(w.attackers),
+            "defenders": list(w.defenders),
+            "participants": participants,
+            "attacker_leader": att_leader,
+            "defender_leader": def_leader,
+            "player": player,
+            "foe": foe,
+            "levels": levels,
+            "player_mil": player_mil,
+            "foe_mil": foe_mil,
+            "mil_gap": mil_gap,
+            "early_game": early,
+            "has_both_mil": True,
+        },
+    )
 
 
 def vassalized_tags(events: list[DiffEvent], player: str) -> set[str]:
@@ -146,6 +290,9 @@ def filter_diff(
     )
     if player:
         filtered = consolidate_subject_alliance(filtered, player=player)
+    # 战争参与方军科快照：从 curr 注入，默认进入玩家过滤结果
+    if player and curr is not None:
+        filtered = enrich_war_tech_snapshots(filtered, curr=curr, player=player)
     return diff.model_copy(
         update={
             "events": filtered,
@@ -162,10 +309,12 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
     detail = ev.detail or {}
     tags_in_event = _event_tags(ev)
 
-    if ev.kind in {"war_started", "war_ended"}:
+    if ev.kind in {"war_started", "war_ended", "war_tech_compare"}:
         participants = set(detail.get("attackers") or []) | set(detail.get("defenders") or [])
         if not participants and detail.get("participants"):
             participants = set(detail["participants"])
+        if ev.kind == "war_tech_compare" and detail.get("player") == player:
+            return True
         return player in participants
 
     if ev.kind == "war_score_changed":

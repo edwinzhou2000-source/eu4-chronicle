@@ -191,6 +191,26 @@ class NameResolver:
             labels = {"adm_tech": "行政科技", "dip_tech": "外交科技", "mil_tech": "军事科技"}
             tech = labels.get(str(detail.get("tech")), str(detail.get("tech")))
             summary = f"{c(tag)} {tech} {detail.get('from')} → {detail.get('to')}"
+        elif ev.kind == "war_tech_compare":
+            foe = detail.get("foe") or other
+            player_mil = detail.get("player_mil")
+            foe_mil = detail.get("foe_mil")
+            mil_gap = detail.get("mil_gap")
+            early = bool(detail.get("early_game"))
+            summary = f"军事科技：{c(tag)} {player_mil} vs {c(foe)} {foe_mil}"
+            if early and mil_gap is not None and abs(int(mil_gap)) == 1:
+                lead = c(tag) if int(mil_gap) > 0 else c(foe)
+                summary += f"（早期轻代差，{lead} 领先 1 级）"
+            elif mil_gap == 0:
+                summary += "（同档）"
+            wname = self.war(
+                detail.get("name") or detail.get("war"),
+                attackers=detail.get("attackers"),
+                defenders=detail.get("defenders"),
+            )
+            detail["name_zh"] = wname
+            detail["player_label"] = c(tag)
+            detail["foe_label"] = c(foe)
         elif ev.kind == "religion_changed":
             summary = f"{c(tag)} 国教 {detail.get('from')} → {detail.get('to')}"
         elif ev.kind == "monarch_changed":

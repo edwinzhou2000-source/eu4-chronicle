@@ -256,6 +256,7 @@ EventKind = Literal[
     "war_score_changed",
     "development_changed",
     "tech_changed",
+    "war_tech_compare",
     "religion_changed",
     "monarch_changed",
     "manpower_changed",
