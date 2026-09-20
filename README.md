@@ -41,10 +41,12 @@ uv sync --extra llm --extra desktop --extra dev
 
 `/mnt/c/Users/<Windows用户名>/Documents/Paradox Interactive/Europa Universalis IV/save games`
 
-也会尝试 OneDrive / `文档` 变体；仅当目录真实存在（优先含有 `.eu4`）时才用作默认。若自动探测不对，请在 `.env` 显式写出：
+也会尝试 OneDrive / `文档` 变体；仅当目录真实存在（优先含有 `.eu4`）时才用作默认。若自动探测不对，可在 `.env` 写 **Windows 盘符路径或 `/mnt/c/...`**（WSL 下 `C:\...` 会自动转成 `/mnt/c/...`）：
 
-```bash
-# WSL 访问 Windows 存档（把 YourName 换成你的 Windows 用户名）
+```env
+# 两种写法在 WSL 下等价（任选其一）
+EU4_SAVE_DIR=C:\Users\YourName\Documents\Paradox Interactive\Europa Universalis IV\save games
+# 或：
 EU4_SAVE_DIR=/mnt/c/Users/YourName/Documents/Paradox Interactive/Europa Universalis IV/save games
 ```
 

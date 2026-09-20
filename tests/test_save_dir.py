@@ -11,6 +11,8 @@ from eu4_chronicle.config import (
     Settings,
     format_save_dir,
     resolve_default_save_dir,
+    windows_drive_path_to_wsl,
+    wslize_save_dir_value,
 )
 
 
@@ -104,3 +106,67 @@ def test_wsl_candidates_include_mnt_c(monkeypatch: pytest.MonkeyPatch) -> None:
         for p in texts
     )
     assert any("OneDrive" in p for p in texts)
+
+
+def test_windows_drive_path_to_wsl_backslash() -> None:
+    assert (
+        windows_drive_path_to_wsl(
+            r"C:\Users\Edwin\Documents\Paradox Interactive\Europa Universalis IV\save games"
+        )
+        == "/mnt/c/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+    )
+
+
+def test_windows_drive_path_to_wsl_forward_slash() -> None:
+    assert (
+        windows_drive_path_to_wsl(
+            "C:/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+        )
+        == "/mnt/c/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+    )
+
+
+def test_windows_drive_path_to_wsl_non_windows_none() -> None:
+    assert windows_drive_path_to_wsl("/mnt/c/Users/Edwin/Documents") is None
+    assert windows_drive_path_to_wsl("relative/path") is None
+
+
+def test_wslize_converts_only_under_wsl(monkeypatch: pytest.MonkeyPatch) -> None:
+    win = r"C:\Users\Edwin\Documents\Paradox Interactive\Europa Universalis IV\save games"
+    monkeypatch.setattr(config, "_is_wsl", lambda: True)
+    assert wslize_save_dir_value(win) == (
+        "/mnt/c/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+    )
+    monkeypatch.setattr(config, "_is_wsl", lambda: False)
+    assert wslize_save_dir_value(win) == win
+
+
+def test_settings_wsl_converts_windows_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "_is_wsl", lambda: True)
+    monkeypatch.setenv(
+        "EU4_SAVE_DIR",
+        r"C:\Users\Edwin\Documents\Paradox Interactive\Europa Universalis IV\save games",
+    )
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert str(s.save_dir).replace("\\", "/") == (
+        "/mnt/c/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+    )
+
+
+def test_settings_non_wsl_keeps_windows_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "_is_wsl", lambda: False)
+    win = r"C:\Users\Edwin\Documents\Paradox Interactive\Europa Universalis IV\save games"
+    monkeypatch.setenv("EU4_SAVE_DIR", win)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    # On Linux Path may normalize separators; still must NOT become /mnt/c/...
+    text = str(s.save_dir)
+    assert not text.startswith("/mnt/")
+    assert "Users" in text and "Edwin" in text
+
+
+def test_settings_mnt_path_unchanged_under_wsl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "_is_wsl", lambda: True)
+    mnt = "/mnt/c/Users/Edwin/Documents/Paradox Interactive/Europa Universalis IV/save games"
+    monkeypatch.setenv("EU4_SAVE_DIR", mnt)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert str(s.save_dir) == mnt

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +23,8 @@ _SKIP_WIN_USERS = frozenset(
         "desktop.ini",
     }
 )
+# C:\... or C:/... → /mnt/c/...
+_WIN_DRIVE_PATH_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 
 
 def _is_wsl() -> bool:
@@ -163,6 +166,36 @@ def default_windows_save_dir() -> Path:
     return resolve_default_save_dir()
 
 
+def windows_drive_path_to_wsl(path_str: str) -> str | None:
+    """若为 Windows 盘符路径（``C:\\...`` / ``C:/...``），转为 ``/mnt/<drive>/...``；否则 None。"""
+    raw = path_str.strip().strip('"').strip("'")
+    match = _WIN_DRIVE_PATH_RE.match(raw)
+    if not match:
+        return None
+    drive = match.group(1).lower()
+    rest = match.group(2).replace("\\", "/")
+    rest = re.sub(r"/+", "/", rest).strip("/")
+    if rest:
+        return f"/mnt/{drive}/{rest}"
+    return f"/mnt/{drive}"
+
+
+def wslize_save_dir_value(value: object) -> object:
+    """WSL 下把显式 Windows 盘符路径改写成 /mnt/...；非 WSL 或已是 POSIX 则原样返回。"""
+    if not _is_wsl():
+        return value
+    if isinstance(value, Path):
+        raw = str(value)
+    elif isinstance(value, str):
+        raw = value
+    else:
+        return value
+    converted = windows_drive_path_to_wsl(raw)
+    if converted is None:
+        return value
+    return converted
+
+
 def format_save_dir(path: Path) -> str:
     """UI / API 展示用绝对路径，避免出现裸 ``.`` 或把空配置 resolve 成进程 cwd。"""
     raw = str(path).strip() if path is not None else ""
@@ -222,7 +255,8 @@ class Settings(BaseSettings):
             return resolve_default_save_dir()
         if isinstance(value, Path) and str(value) in {".", ""}:
             return resolve_default_save_dir()
-        return value
+        # 尽早转写，避免 Path 在 POSIX 上把反斜杠弄乱
+        return wslize_save_dir_value(value)
 
     @field_validator("save_dir", mode="after")
     @classmethod
@@ -230,6 +264,10 @@ class Settings(BaseSettings):
         raw = str(value).strip() if value is not None else ""
         if not raw or raw in {".", "./"}:
             return resolve_default_save_dir()
+        wslized = wslize_save_dir_value(raw)
+        if isinstance(wslized, str):
+            value = Path(wslized)
+            raw = wslized
         # Path('') / Path('.') 在部分环境下 expand 后仍可能指向 cwd；禁止把「未配置」当成仓库根
         try:
             resolved = value.expanduser().resolve(strict=False)
