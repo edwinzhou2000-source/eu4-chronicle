@@ -371,7 +371,8 @@ def test_dump_war_scores_labels_total_and_ticking():
     assert "resolved_ticking_attacker=16.8" in dump
     assert "source=attacker_score" in dump
     assert "战争目标加分" in dump
-    assert "-25～+25" in dump
+    assert "-25～+25" not in dump
+    assert "约 -25" not in dump
     assert "非总战分" not in dump
     assert "raw_score_fields:" in dump
 
@@ -495,7 +496,10 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
     assert "优势在握" in md or "基本打赢" in md
     assert "双方胶着" not in md
     assert "胶着（战分 +17）" not in md
-    assert "战争目标加分 +17（约 -25～+25）" in war
+    assert "战争目标加分 +17" in war
+    assert "约 -25～+25" not in war
+    assert "（约-25～+25）" not in war
+    assert "-25～+25" not in war
     assert "不作胶着依据" not in md
     assert "非总战分" not in md
     assert "目标 ticking" not in md
@@ -504,7 +508,6 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
     assert "下一页按战分" not in md
     assert "基本打赢（战分 +64）" not in narrative
     assert "+17" in war
-    assert "-25～+25" in war
     assert "夺取宣称" in war
     assert "征服" in war
     assert "诺泰奇" in war
@@ -516,7 +519,9 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
 def test_format_ticking_bonus_copy():
     from eu4_chronicle.warscore import format_ticking_bonus
 
-    assert format_ticking_bonus(16.8) == "战争目标加分 +17（约 -25～+25）"
-    assert format_ticking_bonus(-12.4) == "战争目标加分 -12（约 -25～+25）"
+    assert format_ticking_bonus(16.8) == "战争目标加分 +17"
+    assert format_ticking_bonus(-12.4) == "战争目标加分 -12"
+    assert "约" not in format_ticking_bonus(16.8)
+    assert "-25" not in format_ticking_bonus(16.8)
     assert "非总战分" not in format_ticking_bonus(1.0)
     assert "不作胶着依据" not in format_ticking_bonus(1.0)

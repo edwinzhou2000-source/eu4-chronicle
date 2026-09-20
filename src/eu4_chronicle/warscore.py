@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from eu4_chronicle.models import WARGOAL_TICKING_MAX, DiffEvent, DiffResult
+from eu4_chronicle.models import DiffEvent, DiffResult
 
 # 显著正分：基本打赢 / 优势在握
 DECISIVE_SCORE = 50.0
@@ -15,10 +15,8 @@ CONTESTED_ABS = 15.0
 
 
 def format_ticking_bonus(score: float) -> str:
-    """成稿用：战争目标达成程度 bonus（约 ±25），正面解释机制。"""
-    lo = int(-WARGOAL_TICKING_MAX)
-    hi = int(WARGOAL_TICKING_MAX)
-    return f"战争目标加分 {score:+.0f}（约 {lo}～+{hi}）"
+    """成稿用：战争目标达成程度 bonus；只写「战争目标加分 ±N」，不加范围注解。"""
+    return f"战争目标加分 {score:+.0f}"
 
 
 @dataclass
@@ -205,12 +203,12 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
         else:
             lines.append(f"「{wlabel}」档内未解析到玩家战分 → tier=unknown")
     lines.append(
-        "硬性：主展示总战分；战争目标加分仅作目标达成程度附注（约 -25～+25）；"
+        "硬性：主展示总战分；战争目标加分仅作目标达成程度附注（成稿写「战争目标加分 ±N」，勿加约±25范围注解）；"
         "战分显著为正（≥50）须写优势在握/基本打赢；"
         "仅在 |总战分| 较低（胶着）时才写胜负未定；"
         "禁止无战分依据的「尘埃未定」。"
         "有具体总战分时禁止写「战分未知」「不作胜负判断」。"
-        "成稿只正面写战争目标加分，勿写元注释免责声明。"
+        "成稿只正面写战争目标加分，勿写元注释免责声明或约±25范围注解。"
     )
     return lines
 
@@ -233,6 +231,12 @@ BANNED_EMPTY_PHRASES = (
     "非总战分",
     "不作胶着依据",
     "勿用其判断胶着",
+    "约 -25～+25",
+    "（约 -25～+25）",
+    "约-25～+25",
+    "（约-25～+25）",
+    "约±25",
+    "约 ±25",
 )
 
 

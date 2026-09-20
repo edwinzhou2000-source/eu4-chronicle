@@ -1,4 +1,4 @@
-"""CLI：eu4-chronicle analyze / dump-war-scores / serve / list-saves。"""
+"""CLI：eu4-chronicle analyze / dump-war-scores / dump-military / serve / list-saves。"""
 
 from __future__ import annotations
 
@@ -54,6 +54,30 @@ def dump_war_scores_cmd(
 
     try:
         text = dump_war_scores(save, player_only=not all_wars)
+    except IronmanSaveError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except SaveParseError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(text)
+
+
+@app.command("dump-military")
+def dump_military_cmd(
+    save: Path = typer.Option(..., "--save", exists=True, dir_okay=False, help="要检查的 .eu4 存档"),
+    tags: Optional[str] = typer.Option(
+        None,
+        "--tags",
+        help="逗号分隔 TAG（默认：玩家 + 其参战战争攻守领袖）",
+    ),
+) -> None:
+    """打印纪律/士气解析结果与候选键，便于确认真档键位。"""
+    from eu4_chronicle.parser import IronmanSaveError, SaveParseError, dump_military
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    try:
+        text = dump_military(save, tags=tag_list)
     except IronmanSaveError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc

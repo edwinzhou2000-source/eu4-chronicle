@@ -648,8 +648,8 @@ def make_brief(
         "## 成稿禁词（空话）",
         "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
         "- 禁止：「下一页…」「按…事实推进」等收束套话。",
-        "- 战争目标加分叙事与要点各至多一句（统一「战争目标加分 ±N（约 -25～+25）」）；"
-        "正面解释目标达成程度，勿写元注释免责声明。",
+        "- 战争目标加分叙事与要点各至多一句（统一「战争目标加分 ±N」）；"
+        "禁止附加任何「约±25」类范围括号注解；正面解释目标达成程度，勿写元注释免责声明。",
         "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技/纪律/士气等。",
         "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
         "- 禁止提及军队传统/海军传统/职业度（本轮未注入）。",
@@ -730,6 +730,15 @@ def _force_guidance_lines(diff: DiffResult) -> list[str]:
             dims.append("军科")
         if dims:
             lines.append(f"- 可对比维：{'、'.join(dims)}（仅这些；缺维勿评）。")
+        must_dims = []
+        if detail.get("has_both_discipline"):
+            must_dims.append("纪律")
+        if detail.get("has_both_land_morale"):
+            must_dims.append("士气")
+        if must_dims:
+            lines.append(
+                f"- **必须写入战局/叙事（不得省略）**：{'、'.join(must_dims)}。"
+            )
         missing = []
         if not detail.get("has_both_army"):
             missing.append("陆军")
@@ -747,5 +756,7 @@ def _force_guidance_lines(diff: DiffResult) -> list[str]:
                 + " / ".join(FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH[:3])
                 + "」。"
             )
-    lines.append("- 硬性：无双方同维数字禁该维对比；禁止传统/职业度。")
+    lines.append(
+        "- 硬性：无双方同维数字禁该维对比；有双方纪律/士气必须写入；禁止传统/职业度。"
+    )
     return lines

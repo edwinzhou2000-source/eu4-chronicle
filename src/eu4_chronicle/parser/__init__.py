@@ -237,8 +237,8 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         max_manpower=node.get_float("max_manpower"),
         army_size=node.get_float("army_size") or _count_units(node, "army"),
         navy_size=node.get_float("navy_size") or _count_units(node, "navy"),
-        discipline=node.get_float_optional("discipline"),
-        land_morale=node.get_float_optional("land_morale"),
+        discipline=_resolve_discipline(node),
+        land_morale=_resolve_land_morale(node),
         prestige=node.get_float("prestige"),
         stability=node.get_int("stability"),
         monarch=monarch,
@@ -250,6 +250,136 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         opinion_of=opinion_of,
         aggressive_expansion=ae_map,
     )
+
+
+# 国块内可能出现的质量相关数值键（真档常无顶层裸字段，需扫嵌套 / modifier）
+_QUALITY_NUMERIC_KEYS = ("discipline", "land_morale", "land_morale_constant")
+# dump-military 候选键子串（大小写不敏感）
+_MILITARY_KEY_HINTS = (
+    "discipline",
+    "morale",
+    "tradition",
+    "professional",
+    "drill",
+    "forcelimit",
+    "force_limit",
+)
+
+
+def _walk_object_nodes(
+    node: ObjectNode, *, path: str = ""
+) -> list[tuple[str, ObjectNode]]:
+    """深度优先遍历对象节点（含 multi 重复键）。"""
+    out: list[tuple[str, ObjectNode]] = [(path or ".", node)]
+    for key, val in node.values.items():
+        child_path = f"{path}.{key}" if path else key
+        if isinstance(val, ObjectNode):
+            out.extend(_walk_object_nodes(val, path=child_path))
+    for key, items in node.multi.items():
+        for idx, val in enumerate(items):
+            if isinstance(val, ObjectNode):
+                child_path = f"{path}.{key}[{idx}]" if path else f"{key}[{idx}]"
+                out.extend(_walk_object_nodes(val, path=child_path))
+    return out
+
+
+def _collect_key_floats(node: ObjectNode, key: str) -> list[tuple[str, float]]:
+    """在国块树内收集 key=数值（含嵌套 modifier/history）。"""
+    found: list[tuple[str, float]] = []
+    for path, obj in _walk_object_nodes(node):
+        if key not in obj.values:
+            continue
+        val = obj.values[key]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            continue
+        loc = key if path in {"", "."} else f"{path}.{key}"
+        found.append((loc, float(val)))
+    return found
+
+
+def _resolve_discipline(node: ObjectNode) -> float | None:
+    """纪律：优先国块顶层；否则扫嵌套数值。
+
+    - 绝对值（≥0.8，如 1.05）直接采用；
+    - 仅有小幅 bonus（如 modifier 内 0.05）则按 1.0+sum 聚合。
+    """
+    top = node.get_float_optional("discipline")
+    if top is not None:
+        return top
+    found = _collect_key_floats(node, "discipline")
+    if not found:
+        return None
+    vals = [v for _, v in found]
+    abs_like = [v for v in vals if v >= 0.8]
+    if abs_like:
+        return abs_like[0]
+    return round(1.0 + sum(vals), 4)
+
+
+def _resolve_land_morale(node: ObjectNode) -> float | None:
+    """士气：优先顶层绝对士气；可加 land_morale_constant。
+
+    仅有乘法 bonus（<1.5）且无绝对士气时无法还原 UI 士气 → None（交给 dump-military）。
+    """
+    constants = _collect_key_floats(node, "land_morale_constant")
+    const_sum = sum(v for _, v in constants)
+    top = node.get_float_optional("land_morale")
+    if top is not None:
+        return round(top + const_sum, 4) if const_sum else top
+    found = _collect_key_floats(node, "land_morale")
+    if not found and not constants:
+        return None
+    vals = [v for _, v in found]
+    abs_like = [v for v in vals if v >= 1.5]
+    if abs_like:
+        return round(abs_like[0] + const_sum, 4)
+    # 仅有百分比 bonus：无游戏定义文件无法还原绝对士气
+    return None
+
+
+def _named_modifiers(node: ObjectNode) -> list[str]:
+    """收集国块顶层 modifier={ modifier="name" ... } 名称（不含外交 opinion）。"""
+    names: list[str] = []
+    blocks: list[ObjectNode] = []
+    blocks.extend(node.all_objects("modifier"))
+    blocks.extend(node.all_objects("modifiers"))
+    for item in node.get_list("modifier") + node.get_list("modifiers"):
+        if isinstance(item, ObjectNode):
+            blocks.append(item)
+        elif isinstance(item, str):
+            names.append(item.strip('"'))
+    for obj in blocks:
+        raw = obj.values.get("modifier") if "modifier" in obj.values else None
+        if isinstance(raw, str):
+            names.append(raw.strip('"'))
+        else:
+            n = obj.get_str("modifier")
+            if n:
+                names.append(n)
+    return list(dict.fromkeys(n for n in names if n))
+
+
+def _candidate_military_keys(node: ObjectNode) -> list[tuple[str, str]]:
+    """返回 (路径, 值摘要) 候选军事相关键，供 dump-military。"""
+    hits: list[tuple[str, str]] = []
+    for path, obj in _walk_object_nodes(node):
+        for key, val in obj.values.items():
+            key_l = key.lower()
+            if not any(h in key_l for h in _MILITARY_KEY_HINTS):
+                continue
+            # 跳过外交 opinion 块里的 modifier 名字段
+            if key_l == "modifier" and isinstance(val, str):
+                if ".opinion" in f".{path}." or path.endswith("opinion") or "opinion_" in path:
+                    continue
+            loc = key if path in {"", "."} else f"{path}.{key}"
+            if isinstance(val, ObjectNode):
+                summary = "{…}"
+            elif isinstance(val, list):
+                summary = f"[{len(val)}]"
+            else:
+                summary = str(val)
+            hits.append((loc, summary))
+    return hits
 
 
 def _count_units(node: ObjectNode, key: str) -> float:
@@ -473,7 +603,7 @@ def format_war_score_dump(state: GameState, *, player_only: bool = True) -> str:
         lines.append(
             f"resolved_ticking_attacker={w.ticking_attacker_score}"
             f"  source={w.ticking_score_source}"
-            f"  # ← 战争目标加分 / ticking（约 -25～+25）"
+            f"  # ← 战争目标加分 / ticking"
         )
         if player:
             lines.append(f"score_for(player)={w.score_for(player)}  # 玩家视角总战分")
@@ -498,6 +628,118 @@ def dump_war_scores(path: Path | str, *, player_only: bool = True) -> str:
     """解析存档并返回 dump-war-scores 文本。"""
     state = parse_save(path)
     return format_war_score_dump(state, player_only=player_only)
+
+
+def _default_military_dump_tags(state: GameState) -> list[str]:
+    """玩家 + 其参战战争的攻守领袖。"""
+    tags: list[str] = []
+    player = state.player
+    if player:
+        tags.append(player)
+    for w in state.wars:
+        involved = set(w.attackers) | set(w.defenders)
+        if player and player not in involved:
+            continue
+        if w.attackers:
+            tags.append(w.attackers[0])
+        if w.defenders:
+            tags.append(w.defenders[0])
+    return list(dict.fromkeys(t for t in tags if t))
+
+
+def format_military_dump(
+    state: GameState,
+    countries_root: ObjectNode | None,
+    *,
+    tags: list[str] | None = None,
+) -> str:
+    """格式化纪律/士气候选键与解析结果，供本机贴回确认。"""
+    want = tags or _default_military_dump_tags(state)
+    lines: list[str] = [
+        f"# dump-military  date={state.date}  player={state.player or '?'}",
+        f"# source={state.source_path or '(text)'}",
+        "# 说明：真档常无国块顶层 discipline/land_morale 裸字段；"
+        "本工具会扫嵌套数值并聚合 modifier 内小幅 bonus（纪律按 1.0+sum）。",
+        "# 仅有 land_morale 百分比 bonus、无绝对士气时无法还原 UI 士气 → parsed=None。",
+        "# named modifier 只有名字、无数值；需游戏定义文件才能换算，此处只列出。",
+        f"# tags={want}",
+        "",
+    ]
+    if not want:
+        lines.append("(无目标 TAG：指定 --tags 或确保档内有 player / 战争领袖)")
+        return "\n".join(lines)
+
+    for tag in want:
+        c = state.countries.get(tag)
+        lines.append(f"## {tag}")
+        if c is None:
+            lines.append("  (countries 中无此 TAG)")
+            lines.append("")
+            continue
+        lines.append(f"  name={c.name!r}")
+        lines.append(f"  army_size={c.army_size}  navy_size={c.navy_size}")
+        lines.append(f"  manpower={c.manpower}  max_manpower={c.max_manpower}")
+        mil = (c.technology or {}).get("mil_tech")
+        lines.append(f"  mil_tech={mil}")
+        lines.append(f"  parsed_discipline={c.discipline}")
+        lines.append(f"  parsed_land_morale={c.land_morale}")
+
+        raw_node: ObjectNode | None = None
+        if countries_root is not None:
+            raw = countries_root.values.get(tag)
+            if isinstance(raw, ObjectNode):
+                raw_node = raw
+
+        if raw_node is None:
+            lines.append("  raw_country_node=(missing)")
+            lines.append("")
+            continue
+
+        for key in _QUALITY_NUMERIC_KEYS:
+            hits = _collect_key_floats(raw_node, key)
+            if hits:
+                lines.append(f"  numeric_{key}:")
+                for loc, val in hits:
+                    lines.append(f"    {loc}={val}")
+            else:
+                lines.append(f"  numeric_{key}: (none)")
+
+        named = _named_modifiers(raw_node)
+        if named:
+            lines.append(f"  named_modifiers ({len(named)}):")
+            for n in named[:40]:
+                lines.append(f"    - {n}")
+            if len(named) > 40:
+                lines.append(f"    … +{len(named) - 40} more")
+        else:
+            lines.append("  named_modifiers: (none)")
+
+        cands = _candidate_military_keys(raw_node)
+        if cands:
+            lines.append(f"  candidate_keys ({len(cands)}):")
+            for loc, summary in cands[:60]:
+                lines.append(f"    {loc}={summary}")
+            if len(cands) > 60:
+                lines.append(f"    … +{len(cands) - 60} more")
+        else:
+            lines.append("  candidate_keys: (none matching discipline/morale/tradition/…)")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def dump_military(
+    path: Path | str,
+    *,
+    tags: list[str] | None = None,
+) -> str:
+    """解析存档并返回 dump-military 文本（纪律/士气候选键）。"""
+    path = Path(path)
+    text = load_save_text(path)
+    root = parse_clausewitz_v2(text)
+    state = extract_game_state(root)
+    state.source_path = str(path)
+    countries_root = root.get_object("countries")
+    return format_military_dump(state, countries_root, tags=tags)
 
 
 def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNode]]:

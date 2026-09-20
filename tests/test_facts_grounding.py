@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from eu4_chronicle.ae import assess_player_ae
 from eu4_chronicle.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
+from eu4_chronicle.agents.prompts import EDITOR_SYSTEM, HISTORIAN_SYSTEM
 from eu4_chronicle.diff import diff_states
 from eu4_chronicle.filter import consolidate_subject_alliance, filter_diff
 from eu4_chronicle.models import (
@@ -214,8 +215,12 @@ def test_mock_ticking_dedup_and_no_next_page_fluff():
 
     assert narrative.count("战争目标加分") == 1
     assert war.count("战争目标加分") == 1
-    assert "战争目标加分 +17（约 -25～+25）" in narrative
-    assert "战争目标加分 +17（约 -25～+25）" in war
+    assert "战争目标加分 +17" in narrative
+    assert "战争目标加分 +17" in war
+    assert "约 -25～+25" not in narrative
+    assert "约 -25～+25" not in war
+    assert "（约-25～+25）" not in war
+    assert "-25～+25" not in war
     assert "不作胶着依据" not in md
     assert "非总战分" not in md
     assert "目标 ticking" not in md
@@ -237,7 +242,11 @@ def test_mock_ticking_dedup_and_no_next_page_fluff():
     assert "战争目标加分" not in ending
     assert "ticking" not in ending.lower()
     assert "下一页" not in ending
-    assert "-25～+25" in war
+    assert "-25～+25" not in md
+    assert "约 -25～+25" not in HISTORIAN_SYSTEM
+    assert "约 -25～+25" not in EDITOR_SYSTEM
+    assert "战争目标加分 ±N" in HISTORIAN_SYSTEM
+    assert "战争目标加分 ±N" in EDITOR_SYSTEM
 
 
 def test_mock_has_no_banned_empty_phrases():
