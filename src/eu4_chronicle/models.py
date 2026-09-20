@@ -25,6 +25,9 @@ class CountryState(BaseModel):
     max_manpower: float = 0.0
     army_size: float = 0.0
     navy_size: float = 0.0
+    # 质量：存档缺则 None，禁止臆造；本轮不做传统/职业度
+    discipline: float | None = None
+    land_morale: float | None = None
     prestige: float = 0.0
     stability: int = 0
     monarch: Monarch | None = None

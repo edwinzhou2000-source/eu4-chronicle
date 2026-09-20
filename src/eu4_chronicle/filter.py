@@ -38,6 +38,56 @@ def _tech_levels(state: GameState, tag: str) -> dict[str, int] | None:
     return out
 
 
+def _force_snapshot(state: GameState, tag: str) -> dict[str, float | int] | None:
+    """玩家/战争领袖军力快照：军科 + 数量 + discipline/land_morale（有则写）。"""
+    country = state.countries.get(tag)
+    if country is None:
+        return None
+    snap: dict[str, float | int] = {}
+    tech = _tech_levels(state, tag)
+    if tech:
+        snap.update(tech)
+    # 数量：0 也是有效数字（已解析）
+    snap["army_size"] = float(country.army_size)
+    snap["navy_size"] = float(country.navy_size)
+    snap["manpower"] = float(country.manpower)
+    snap["max_manpower"] = float(country.max_manpower)
+    if country.discipline is not None:
+        snap["discipline"] = float(country.discipline)
+    if country.land_morale is not None:
+        snap["land_morale"] = float(country.land_morale)
+    return snap
+
+
+def _fmt_force_side(tag: str, snap: dict[str, float | int]) -> str:
+    """单侧摘要片段：军科4 陆军x 人力a/b 纪律y 士气z（缺则省略）。"""
+    bits: list[str] = [tag]
+    if "mil_tech" in snap:
+        bits.append(f"军科{int(snap['mil_tech'])}")
+    if "army_size" in snap:
+        bits.append(f"陆军{float(snap['army_size']):.0f}")
+    if "navy_size" in snap and float(snap["navy_size"]) > 0:
+        bits.append(f"海军{float(snap['navy_size']):.0f}")
+    if "manpower" in snap:
+        mx = snap.get("max_manpower")
+        if mx is not None:
+            bits.append(f"人力{float(snap['manpower']):.1f}/{float(mx):.1f}")
+        else:
+            bits.append(f"人力{float(snap['manpower']):.1f}")
+    if "discipline" in snap:
+        bits.append(f"纪律{_fmt_quality(snap['discipline'])}")
+    if "land_morale" in snap:
+        bits.append(f"士气{_fmt_quality(snap['land_morale'])}")
+    return " ".join(bits)
+
+
+def _fmt_quality(v: float | int) -> str:
+    f = float(v)
+    if abs(f - round(f)) < 1e-9:
+        return str(int(round(f)))
+    return f"{f:.3f}".rstrip("0").rstrip(".")
+
+
 def _war_side_leader(side: list[str]) -> str | None:
     return side[0] if side else None
 
@@ -48,9 +98,10 @@ def enrich_war_tech_snapshots(
     curr: GameState,
     player: str,
 ) -> list[DiffEvent]:
-    """从 curr GameState 注入玩家参战战争的军科对比（不靠 include-global）。
+    """从 curr GameState 注入玩家参战战争的军力对比（军科+数量+纪律/士气）。
 
-    参战方至少含攻守战争领袖 + 玩家；缺双方 mil 则不生成，避免瞎评代差。
+    参战方至少含攻守战争领袖 + 玩家；至少一侧有可比字段才生成。
+    无双方同维数字时 detail 标记 has_both_* = False，供提示词禁该维对比。
     """
     if not player:
         return list(events)
@@ -78,6 +129,10 @@ def enrich_war_tech_snapshots(
     return out
 
 
+# 别名：计划称 war_military_compare；事件 kind 仍用 war_tech_compare 以兼容既有过滤/测试
+enrich_war_military_snapshots = enrich_war_tech_snapshots
+
+
 def _war_tech_compare_event(
     w: WarState,
     *,
@@ -99,53 +154,132 @@ def _war_tech_compare_event(
         return None
 
     snap_tags = [t for t in (att_leader, def_leader, player) if t]
-    # 去重保序
     ordered: list[str] = list(dict.fromkeys(snap_tags))
+    forces: dict[str, dict[str, float | int]] = {}
     levels: dict[str, dict[str, int]] = {}
     for tag in ordered:
-        snap = _tech_levels(curr, tag)
+        snap = _force_snapshot(curr, tag)
         if snap is not None:
-            levels[tag] = snap
+            forces[tag] = snap
+            tech_only = {
+                k: int(v)
+                for k, v in snap.items()
+                if k in ("mil_tech", "adm_tech", "dip_tech")
+            }
+            if "mil_tech" in tech_only:
+                levels[tag] = tech_only
 
-    player_levels = levels.get(player)
-    foe_levels = levels.get(foe)
-    if not player_levels or not foe_levels:
+    player_force = forces.get(player)
+    foe_force = forces.get(foe)
+    if not player_force or not foe_force:
         return None
 
-    player_mil = player_levels["mil_tech"]
-    foe_mil = foe_levels["mil_tech"]
-    mil_gap = player_mil - foe_mil  # 玩家相对对手
+    has_both_mil = "mil_tech" in player_force and "mil_tech" in foe_force
+    army_signal = (
+        "army_size" in player_force
+        and "army_size" in foe_force
+        and (
+            float(player_force.get("army_size", 0)) > 0
+            or float(foe_force.get("army_size", 0)) > 0
+        )
+    )
+    navy_signal = (
+        "navy_size" in player_force
+        and "navy_size" in foe_force
+        and (
+            float(player_force.get("navy_size", 0)) > 0
+            or float(foe_force.get("navy_size", 0)) > 0
+        )
+    )
+    man_signal = (
+        "manpower" in player_force
+        and "manpower" in foe_force
+        and (
+            float(player_force.get("manpower", 0)) > 0
+            or float(foe_force.get("manpower", 0)) > 0
+        )
+    )
+    has_both_discipline = "discipline" in player_force and "discipline" in foe_force
+    has_both_land_morale = "land_morale" in player_force and "land_morale" in foe_force
+    has_both_army = army_signal
+    has_both_navy = navy_signal
+    has_both_manpower = man_signal
 
-    summary = f"军事科技：{player} {player_mil} vs {foe} {foe_mil}"
-    if early and abs(mil_gap) == 1:
-        lead = player if mil_gap > 0 else foe
-        summary += f"（早期轻代差，{lead} 领先 1 级）"
-    elif mil_gap == 0:
-        summary += "（同档）"
+    # 无双方 mil、又无正兵力/人力、又无双方纪律/士气 → 不生成（避免空壳国瞎比）
+    if not (
+        has_both_mil
+        or army_signal
+        or man_signal
+        or has_both_discipline
+        or has_both_land_morale
+    ):
+        return None
+
+    player_mil = int(player_force["mil_tech"]) if has_both_mil else None
+    foe_mil = int(foe_force["mil_tech"]) if has_both_mil else None
+    mil_gap = (player_mil - foe_mil) if has_both_mil else None
+
+    # summary 中数量仅在有信号时写出，避免 陆军0 噪音；质量仅双方都有才写
+    def _side_for_summary(tag: str, snap: dict[str, float | int]) -> dict[str, float | int]:
+        out = dict(snap)
+        if not army_signal:
+            out.pop("army_size", None)
+        if not navy_signal:
+            out.pop("navy_size", None)
+        if not man_signal:
+            out.pop("manpower", None)
+            out.pop("max_manpower", None)
+        if not has_both_discipline:
+            out.pop("discipline", None)
+        if not has_both_land_morale:
+            out.pop("land_morale", None)
+        return out
+
+    summary = (
+        f"军力对比：{_fmt_force_side(player, _side_for_summary(player, player_force))} vs "
+        f"{_fmt_force_side(foe, _side_for_summary(foe, foe_force))}"
+    )
+    if has_both_mil and mil_gap is not None:
+        if early and abs(mil_gap) == 1:
+            lead = player if mil_gap > 0 else foe
+            summary += f"（早期轻代差，{lead} 军科领先 1 级）"
+        elif mil_gap == 0:
+            summary += "（军科同档）"
 
     participants = list(dict.fromkeys([*w.attackers, *w.defenders]))
+    detail: dict = {
+        "name": w.name,
+        "war": w.name,
+        "attackers": list(w.attackers),
+        "defenders": list(w.defenders),
+        "participants": participants,
+        "attacker_leader": att_leader,
+        "defender_leader": def_leader,
+        "player": player,
+        "foe": foe,
+        "levels": levels,
+        "forces": forces,
+        "player_force": player_force,
+        "foe_force": foe_force,
+        "early_game": early,
+        "has_both_mil": has_both_mil,
+        "has_both_army": has_both_army,
+        "has_both_navy": has_both_navy,
+        "has_both_manpower": has_both_manpower,
+        "has_both_discipline": has_both_discipline,
+        "has_both_land_morale": has_both_land_morale,
+    }
+    if has_both_mil and player_mil is not None and foe_mil is not None:
+        detail["player_mil"] = player_mil
+        detail["foe_mil"] = foe_mil
+        detail["mil_gap"] = mil_gap
+
     return DiffEvent(
         kind="war_tech_compare",
         tag=player,
         other_tag=foe,
         summary=summary,
-        detail={
-            "name": w.name,
-            "war": w.name,
-            "attackers": list(w.attackers),
-            "defenders": list(w.defenders),
-            "participants": participants,
-            "attacker_leader": att_leader,
-            "defender_leader": def_leader,
-            "player": player,
-            "foe": foe,
-            "levels": levels,
-            "player_mil": player_mil,
-            "foe_mil": foe_mil,
-            "mil_gap": mil_gap,
-            "early_game": early,
-            "has_both_mil": True,
-        },
+        detail=detail,
     )
 
 

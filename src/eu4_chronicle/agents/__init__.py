@@ -375,30 +375,67 @@ def _war_standing_detail_bits(s, names: NameResolver) -> list[str]:
 
 
 def _war_tech_compare_fact(e, names: NameResolver) -> str | None:
-    """有双方 mil 才成句；早期差 1 点明轻代差。"""
+    """有双方可比数字才成句；军科早期差 1 点明轻代差；纪律/士气仅双方都有才写。"""
     detail = e.detail or {}
-    if not detail.get("has_both_mil", True):
-        return None
-    player_mil = detail.get("player_mil")
-    foe_mil = detail.get("foe_mil")
-    if player_mil is None or foe_mil is None:
-        return None
     player_l = detail.get("player_label") or names.country(detail.get("player") or e.tag)
     foe_l = detail.get("foe_label") or names.country(detail.get("foe") or e.other_tag)
-    try:
-        gap = int(detail.get("mil_gap", int(player_mil) - int(foe_mil)))
-    except (TypeError, ValueError):
-        gap = int(player_mil) - int(foe_mil)
-    base = f"军事科技 {player_l} {player_mil} vs {foe_l} {foe_mil}"
-    early = bool(detail.get("early_game"))
-    if early and abs(gap) == 1:
-        lead = player_l if gap > 0 else foe_l
-        return f"{base}（{lead} 军科领先一级，属前期轻代差）"
-    if gap == 0:
-        return f"{base}（同档）"
-    if gap > 0:
-        return f"{base}（玩家领先 {gap} 级）"
-    return f"{base}（对手领先 {-gap} 级）"
+    player_force = detail.get("player_force") or {}
+    foe_force = detail.get("foe_force") or {}
+
+    bits: list[str] = []
+    # 军科
+    if detail.get("has_both_mil", True):
+        player_mil = detail.get("player_mil")
+        foe_mil = detail.get("foe_mil")
+        if player_mil is not None and foe_mil is not None:
+            try:
+                gap = int(detail.get("mil_gap", int(player_mil) - int(foe_mil)))
+            except (TypeError, ValueError):
+                gap = int(player_mil) - int(foe_mil)
+            base = f"军事科技 {player_l} {player_mil} vs {foe_l} {foe_mil}"
+            early = bool(detail.get("early_game"))
+            if early and abs(gap) == 1:
+                lead = player_l if gap > 0 else foe_l
+                bits.append(f"{base}（{lead} 军科领先一级，属前期轻代差）")
+            elif gap == 0:
+                bits.append(f"{base}（同档）")
+            elif gap > 0:
+                bits.append(f"{base}（玩家领先 {gap} 级）")
+            else:
+                bits.append(f"{base}（对手领先 {-gap} 级）")
+
+    # 兵力 / 人力（双方同维才写）
+    if detail.get("has_both_army") and player_force and foe_force:
+        pa = float(player_force.get("army_size", 0))
+        fa = float(foe_force.get("army_size", 0))
+        bits.append(f"陆军 {player_l} {pa:.0f} vs {foe_l} {fa:.0f}")
+    if detail.get("has_both_manpower") and player_force and foe_force:
+        pm = float(player_force.get("manpower", 0))
+        pmx = float(player_force.get("max_manpower", 0))
+        fm = float(foe_force.get("manpower", 0))
+        fmx = float(foe_force.get("max_manpower", 0))
+        bits.append(f"人力 {player_l} {pm:.1f}/{pmx:.1f} vs {foe_l} {fm:.1f}/{fmx:.1f}")
+    if detail.get("has_both_discipline") and player_force and foe_force:
+        bits.append(
+            f"纪律 {player_l} {_fmt_q(player_force['discipline'])} vs "
+            f"{foe_l} {_fmt_q(foe_force['discipline'])}"
+        )
+    if detail.get("has_both_land_morale") and player_force and foe_force:
+        bits.append(
+            f"士气 {player_l} {_fmt_q(player_force['land_morale'])} vs "
+            f"{foe_l} {_fmt_q(foe_force['land_morale'])}"
+        )
+
+    if not bits:
+        return None
+    return "；".join(bits)
+
+
+def _fmt_q(v) -> str:
+    f = float(v)
+    if abs(f - round(f)) < 1e-9:
+        return str(int(round(f)))
+    return f"{f:.3f}".rstrip("0").rstrip(".")
 
 
 def _mock_war_section(
@@ -590,6 +627,7 @@ def make_brief(
     guide = ae_guidance_lines(ae, player_label=player, for_user=False)
     war_lines = war_guidance_lines(wars, country_label=names.country)
     tech_lines = _tech_guidance_lines(diff)
+    force_lines = _force_guidance_lines(diff)
     block = [
         "",
         "## AE 态势（供外交官/主编遵守，禁止编造恐吓；调试旁注勿写入成稿正文）",
@@ -604,13 +642,17 @@ def make_brief(
         "## 军事科技 / 代差（供军师/史官/主编遵守）",
         *tech_lines,
         "",
+        "## 交战军力（数量 + 质量；供军师/史官/主编遵守）",
+        *force_lines,
+        "",
         "## 成稿禁词（空话）",
         "- 禁止：粮草、补给线、打通补给、分数打实、胜负尚在尘埃未定、刀尚未收/入鞘。",
         "- 禁止：「下一页…」「按…事实推进」等收束套话。",
         "- 战争目标加分叙事与要点各至多一句（统一「战争目标加分 ±N（约 -25～+25）」）；"
         "正面解释目标达成程度，勿写元注释免责声明。",
-        "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技等。",
+        "- 只陈述 Diff 有数据的事实：人力/海军/陆军/战争参战方与战分/同盟附庸/科技/纪律/士气等。",
         "- 同对手 alliance_break + 收附 → 只写收附，禁止渲染断盟悲剧。",
+        "- 禁止提及军队传统/海军传统/职业度（本轮未注入）。",
     ]
     return base + "\n".join(block)
 
@@ -621,7 +663,8 @@ def _tech_guidance_lines(diff: DiffResult) -> list[str]:
 
     compares = [e for e in diff.events if e.kind == "war_tech_compare"]
     lines: list[str] = []
-    if not compares:
+    mil_compares = [e for e in compares if (e.detail or {}).get("has_both_mil")]
+    if not mil_compares:
         lines.append(
             "- 本 Diff **无双方军科对比数字**：禁止写「"
             + " / ".join(TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH[:4])
@@ -629,7 +672,7 @@ def _tech_guidance_lines(diff: DiffResult) -> list[str]:
         )
         return lines
 
-    for e in compares:
+    for e in mil_compares:
         detail = e.detail or {}
         lines.append(f"- 事实：{e.summary}")
         gap = detail.get("mil_gap")
@@ -651,6 +694,58 @@ def _tech_guidance_lines(diff: DiffResult) -> list[str]:
         else:
             lines.append(f"- 军科差 {g:+d}：可据实点评，勿夸大。")
     lines.append(
-        "- 硬性：没有 war_tech_compare / 双方 mil 数字时，禁止一切代差或同档对比句。"
+        "- 硬性：没有双方 mil 数字时，禁止一切代差或同档对比句。"
     )
+    return lines
+
+
+def _force_guidance_lines(diff: DiffResult) -> list[str]:
+    """brief 交战军力：无双方同维数字禁该维对比。"""
+    from eu4_chronicle.agents.prompts import FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH
+
+    compares = [e for e in diff.events if e.kind == "war_tech_compare"]
+    lines: list[str] = []
+    if not compares:
+        lines.append(
+            "- 本 Diff **无交战军力快照**：禁止写「"
+            + " / ".join(FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH[:4])
+            + "」等空口体量句；勿臆造对手兵力/纪律/士气。"
+        )
+        lines.append("- 硬性：无双方同维数字则禁止该维对比；勿提传统/职业度。")
+        return lines
+
+    for e in compares:
+        detail = e.detail or {}
+        lines.append(f"- 事实：{e.summary}")
+        dims = []
+        if detail.get("has_both_army"):
+            dims.append("陆军")
+        if detail.get("has_both_manpower"):
+            dims.append("人力")
+        if detail.get("has_both_discipline"):
+            dims.append("纪律")
+        if detail.get("has_both_land_morale"):
+            dims.append("士气")
+        if detail.get("has_both_mil"):
+            dims.append("军科")
+        if dims:
+            lines.append(f"- 可对比维：{'、'.join(dims)}（仅这些；缺维勿评）。")
+        missing = []
+        if not detail.get("has_both_army"):
+            missing.append("陆军")
+        if not detail.get("has_both_manpower"):
+            missing.append("人力")
+        if not detail.get("has_both_discipline"):
+            missing.append("纪律")
+        if not detail.get("has_both_land_morale"):
+            missing.append("士气")
+        if missing:
+            lines.append(f"- 缺双方数字、禁止对比：{'、'.join(missing)}。")
+        if not detail.get("has_both_army") and not detail.get("has_both_manpower"):
+            lines.append(
+                "- 无双方兵力/人力：禁止「"
+                + " / ".join(FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH[:3])
+                + "」。"
+            )
+    lines.append("- 硬性：无双方同维数字禁该维对比；禁止传统/职业度。")
     return lines

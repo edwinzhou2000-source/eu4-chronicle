@@ -104,6 +104,9 @@ def test_enrich_injects_teu4_vs_pol3():
     assert e.detail["early_game"] is True
     assert "4" in e.summary and "3" in e.summary
     assert "轻代差" in e.summary
+    # 扩展后摘要以「军力对比」为题，仍含军科数字
+    assert "军力对比" in e.summary or "军事科技" in e.summary
+    assert "军科" in e.summary or "4" in e.summary
 
 
 def test_enrich_skips_when_foe_mil_missing():

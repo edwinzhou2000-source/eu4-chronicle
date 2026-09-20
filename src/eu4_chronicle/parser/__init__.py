@@ -237,6 +237,8 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         max_manpower=node.get_float("max_manpower"),
         army_size=node.get_float("army_size") or _count_units(node, "army"),
         navy_size=node.get_float("navy_size") or _count_units(node, "navy"),
+        discipline=node.get_float_optional("discipline"),
+        land_morale=node.get_float_optional("land_morale"),
         prestige=node.get_float("prestige"),
         stability=node.get_int("stability"),
         monarch=monarch,

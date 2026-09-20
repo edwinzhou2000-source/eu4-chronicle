@@ -7,6 +7,35 @@ from eu4_chronicle.names.catalog import COUNTRY_ZH, PROVINCE_ZH
 from eu4_chronicle.names.wars import translate_war_name
 
 
+def _fmt_quality_num(v: float | int) -> str:
+    f = float(v)
+    if abs(f - round(f)) < 1e-9:
+        return str(int(round(f)))
+    return f"{f:.3f}".rstrip("0").rstrip(".")
+
+
+def _fmt_force_side_zh(label: str, snap: dict) -> str:
+    """可读国名 + 军科/陆军/人力/纪律/士气（缺则省略）。"""
+    bits: list[str] = [label]
+    if snap.get("mil_tech") is not None:
+        bits.append(f"军科{int(snap['mil_tech'])}")
+    if snap.get("army_size") is not None:
+        bits.append(f"陆军{float(snap['army_size']):.0f}")
+    if snap.get("navy_size") is not None and float(snap["navy_size"]) > 0:
+        bits.append(f"海军{float(snap['navy_size']):.0f}")
+    if snap.get("manpower") is not None:
+        mx = snap.get("max_manpower")
+        if mx is not None:
+            bits.append(f"人力{float(snap['manpower']):.1f}/{float(mx):.1f}")
+        else:
+            bits.append(f"人力{float(snap['manpower']):.1f}")
+    if snap.get("discipline") is not None:
+        bits.append(f"纪律{_fmt_quality_num(snap['discipline'])}")
+    if snap.get("land_morale") is not None:
+        bits.append(f"士气{_fmt_quality_num(snap['land_morale'])}")
+    return " ".join(bits)
+
+
 class NameResolver:
     """把 tag / province id 解析成面向读者的中文（或可读）名称。"""
 
@@ -193,16 +222,44 @@ class NameResolver:
             summary = f"{c(tag)} {tech} {detail.get('from')} → {detail.get('to')}"
         elif ev.kind == "war_tech_compare":
             foe = detail.get("foe") or other
-            player_mil = detail.get("player_mil")
-            foe_mil = detail.get("foe_mil")
-            mil_gap = detail.get("mil_gap")
+            player_force = dict(detail.get("player_force") or {})
+            foe_force = dict(detail.get("foe_force") or {})
             early = bool(detail.get("early_game"))
-            summary = f"军事科技：{c(tag)} {player_mil} vs {c(foe)} {foe_mil}"
-            if early and mil_gap is not None and abs(int(mil_gap)) == 1:
-                lead = c(tag) if int(mil_gap) > 0 else c(foe)
-                summary += f"（早期轻代差，{lead} 领先 1 级）"
-            elif mil_gap == 0:
-                summary += "（同档）"
+            mil_gap = detail.get("mil_gap")
+            has_both_mil = bool(detail.get("has_both_mil"))
+            # 与 filter summary 一致：无信号的数量维不展示
+            if not detail.get("has_both_army"):
+                player_force.pop("army_size", None)
+                foe_force.pop("army_size", None)
+            if not detail.get("has_both_navy"):
+                player_force.pop("navy_size", None)
+                foe_force.pop("navy_size", None)
+            if not detail.get("has_both_manpower"):
+                player_force.pop("manpower", None)
+                player_force.pop("max_manpower", None)
+                foe_force.pop("manpower", None)
+                foe_force.pop("max_manpower", None)
+            if not detail.get("has_both_discipline"):
+                player_force.pop("discipline", None)
+                foe_force.pop("discipline", None)
+            if not detail.get("has_both_land_morale"):
+                player_force.pop("land_morale", None)
+                foe_force.pop("land_morale", None)
+            if player_force or foe_force:
+                summary = (
+                    f"军力对比：{_fmt_force_side_zh(c(tag), player_force)} vs "
+                    f"{_fmt_force_side_zh(c(foe), foe_force)}"
+                )
+            else:
+                player_mil = detail.get("player_mil")
+                foe_mil = detail.get("foe_mil")
+                summary = f"军事科技：{c(tag)} {player_mil} vs {c(foe)} {foe_mil}"
+            if has_both_mil and mil_gap is not None:
+                if early and abs(int(mil_gap)) == 1:
+                    lead = c(tag) if int(mil_gap) > 0 else c(foe)
+                    summary += f"（早期轻代差，{lead} 军科领先 1 级）"
+                elif mil_gap == 0:
+                    summary += "（军科同档）"
             wname = self.war(
                 detail.get("name") or detail.get("war"),
                 attackers=detail.get("attackers"),
