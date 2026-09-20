@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from eu4_chronicle.agents.llm import LLMError
 from eu4_chronicle.config import get_settings
 from eu4_chronicle.pipeline import analyze_saves
 
@@ -87,6 +88,8 @@ async def analyze(body: AnalyzeRequest) -> dict:
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return report.model_dump()

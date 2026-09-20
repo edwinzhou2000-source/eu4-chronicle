@@ -82,12 +82,18 @@ def analyze(
     ),
 ) -> None:
     """解析两档 → 玩家过滤 Diff → 史官/军师/外交官 → 主编成稿。"""
+    from eu4_chronicle.agents.llm import LLMError
+
     settings = get_settings()
     if mode:
         settings = settings.model_copy(update={"mode": mode})
-    report = asyncio.run(
-        analyze_saves(prev, curr, settings=settings, include_global=include_global)
-    )
+    try:
+        report = asyncio.run(
+            analyze_saves(prev, curr, settings=settings, include_global=include_global)
+        )
+    except LLMError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
     typer.echo(
         f"# 模式: {report.mode} | 事件: {report.event_count} | 玩家: {report.player}"
         f"{' | 含全球' if include_global else ' | 玩家过滤'}"

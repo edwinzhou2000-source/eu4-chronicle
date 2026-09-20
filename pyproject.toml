@@ -14,6 +14,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# OpenAI 兼容 HTTP 客户端（含 Gemini 官方兼容端点）；与主依赖对齐，显式 --extra llm 即可
+llm = [
+  "httpx>=0.27.0",
+]
 dev = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.24.0",

@@ -22,8 +22,11 @@
 
 ```bash
 git pull
-uv sync --extra dev
+uv sync --extra llm --extra dev
 ```
+
+- `--extra llm`：OpenAI 兼容 HTTP 客户端（`httpx`；Gemini 也走同一套）
+- `--extra dev`：pytest 等开发依赖
 
 ## 配置存档目录
 
@@ -36,22 +39,44 @@ export EU4_SAVE_DIR="$HOME/Documents/Paradox Interactive/Europa Universalis IV/s
 # 或 cp .env.example .env 后编辑
 ```
 
-## Mock 与真实模型
+## Mock 与真实 LLM
 
-| | Mock | 真实 LLM |
-|--|------|----------|
-| 条件 | 默认，或未设置 `OPENAI_API_KEY` | `EU4_CHRONICLE_MODE=llm` 且已设 Key |
-| 文笔 | 按过滤后事件写史书短帖（有因果主次） | 同一模型、四套社区向系统提示 |
-| 用途 | 无 Key 也可出可分享成稿 | 文笔更活 |
+| | Mock | 真实 LLM（OpenAI 兼容） |
+|--|------|-------------------------|
+| 怎么开 | 默认，或 `--mode mock` | `--mode llm` / `EU4_CHRONICLE_MODE=llm` **且**已设 `OPENAI_API_KEY` |
+| 文笔 | 按过滤后事件写史书短帖（有因果主次） | 同一套社区向 / 反空话 / 事实约束提示词，走 `/chat/completions` |
+| 用途 | 无 Key 也可出可分享成稿 | 文笔更活；**不会**为缺 Key 静默回退 mock，而是报错提示 |
+
+### 本机 `.env`
 
 ```bash
-export OPENAI_API_KEY=sk-...
-# export OPENAI_BASE_URL=https://api.openai.com/v1
-# export EU4_CHRONICLE_MODEL=gpt-4o-mini
-export EU4_CHRONICLE_MODE=llm
+cp .env.example .env
+# 编辑 .env：填 Key，并把 EU4_CHRONICLE_MODE=llm（或命令行 --mode llm）
 ```
 
-无 Key 时即使写了 `llm` 也会回退到 mock。
+**OpenAI 官方：**
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+EU4_CHRONICLE_MODE=llm
+```
+
+**Gemini（固定用官方 OpenAI 兼容端点，不另装 google 库）：**
+
+```bash
+# .env
+OPENAI_API_KEY=你的_Gemini_API_Key
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+OPENAI_MODEL=gemini-2.0-flash
+EU4_CHRONICLE_MODE=llm
+```
+
+> 兼容说明见 [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)。变量名仍是 `OPENAI_*`，只是 Base URL / Key / 模型换成 Gemini。
+
+未设 `OPENAI_API_KEY` 却使用 `--mode llm` 时，会提示：请设置 Key，或改用 `--mode mock`。
 
 ## 推荐选档
 
@@ -70,7 +95,7 @@ uv run eu4-chronicle analyze \
   --mode mock
 ```
 
-本机真档（以 TEU 为例，路径按你的目录改）：
+本机真档 + **mock**：
 
 ```bash
 uv run eu4-chronicle analyze \
@@ -78,6 +103,16 @@ uv run eu4-chronicle analyze \
   --curr "$EU4_SAVE_DIR/teu_curr.eu4" \
   --mode mock \
   --out ~/Desktop/teu-chronicle.md
+```
+
+本机真档 + **llm**（先配好 `.env`）：
+
+```bash
+uv run eu4-chronicle analyze \
+  --prev "$EU4_SAVE_DIR/teu_prev.eu4" \
+  --curr "$EU4_SAVE_DIR/teu_curr.eu4" \
+  --mode llm \
+  --out ~/Desktop/teu-chronicle-llm.md
 ```
 
 若战分可疑，先 dump 原始字段（把输出贴回即可钉死总战分/ticking）：
@@ -92,7 +127,7 @@ uv run eu4-chronicle dump-war-scores --save "$EU4_SAVE_DIR/Teutonic_Order1454_11
 # 保留全球事件（调试/看世界）
 uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --include-global
 
-# 额外打印史官/军师/外交官小节，以及 curr 档 raw_war_scores 一行
+# 额外打印史官/军师/外交官草稿，以及 curr 档 raw_war_scores 一行
 uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --verbose
 ```
 
@@ -110,13 +145,16 @@ uv run eu4-chronicle serve
 - **云端**：不能代替本机读档
 - **名称覆盖**：内置中文映射非全图（已优先覆盖波罗的海/东欧常见 TAG 与战争名模板）；缺省时用存档英文名或「省份ID」兜底，战争名可回退为「进攻方征服·目标」
 - **AE**：mock 与 LLM 提示均遵守「包围网一般需 AE>50」；无跳变时禁止「高 AE」恐吓套话
+- **LLM**：只走 OpenAI 兼容协议；勿把真实 Key 提交进仓库（`.gitignore` 已忽略 `.env`）
 
 ## 开发与测试
 
 ```bash
-uv sync --extra dev
+uv sync --extra llm --extra dev
 uv run pytest
 ```
+
+单测默认不打付费 API：mock 路径全绿；llm 路径用注入的 mock HTTP 客户端，或在无 Key 时 skip。
 
 ## 项目结构
 
@@ -127,7 +165,7 @@ src/eu4_chronicle/
   filter.py   # 玩家中心过滤
   names/      # TAG / 省份 / 战争名可读化
   ae.py       # AE / 包围网态势评估
-  agents/     # 史官 / 军师 / 外交官 / 主编
+  agents/     # 史官 / 军师 / 外交官 / 主编（prompts + OpenAI 兼容客户端）
   pipeline.py
   cli.py
   server.py

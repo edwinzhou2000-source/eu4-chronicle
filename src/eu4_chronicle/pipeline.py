@@ -71,6 +71,7 @@ async def synthesize(
     names = names or NameResolver()
     if ae is None:
         ae = assess_player_ae(diff, country_label=names.country)
+    settings.ensure_llm_ready()
     brief = make_brief(diff, names=names, ae=ae)
     mode = settings.resolved_mode()
 
