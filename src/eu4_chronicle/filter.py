@@ -75,9 +75,11 @@ def _fmt_force_side(tag: str, snap: dict[str, float | int | bool]) -> str:
     if "manpower" in snap:
         mx = snap.get("max_manpower")
         if mx is not None:
-            bits.append(f"人力{float(snap['manpower']):.1f}/{float(mx):.1f}")
+            bits.append(
+                f"当前人力{float(snap['manpower']):.1f}/上限{float(mx):.1f}（千人）"
+            )
         else:
-            bits.append(f"人力{float(snap['manpower']):.1f}")
+            bits.append(f"当前人力{float(snap['manpower']):.1f}（千人）")
     if "discipline" in snap:
         bits.append(f"纪律{_fmt_quality(snap['discipline'])}")
     if "land_morale" in snap:
@@ -105,8 +107,9 @@ def enrich_war_tech_snapshots(
     curr: GameState,
     player: str,
 ) -> list[DiffEvent]:
-    """从 curr GameState 注入玩家参战战争的军力对比（军科+数量+纪律/士气）。
+    """从 curr 的 active_war 注入交战双方军力对比（军科+数量+纪律/士气）。
 
+    仅 curr.wars（进行中）；previous_war 不注入。
     参战方至少含攻守战争领袖 + 玩家；至少一侧有可比字段才生成。
     无双方同维数字时 detail 标记 has_both_* = False，供提示词禁该维对比。
     """
@@ -454,13 +457,19 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
     if ev.kind == "date_changed":
         return True
 
+    # 任务书战报小节已下线：一律不进入默认 Diff
+    if ev.kind in {"mission_completed", "missions_lost"}:
+        return False
+
     detail = ev.detail or {}
     tags_in_event = _event_tags(ev)
 
     if ev.kind in {"war_started", "war_ended", "war_tech_compare"}:
-        participants = set(detail.get("attackers") or []) | set(detail.get("defenders") or [])
-        if not participants and detail.get("participants"):
-            participants = set(detail["participants"])
+        participants = (
+            set(detail.get("attackers") or [])
+            | set(detail.get("defenders") or [])
+            | set(detail.get("participants") or [])
+        )
         if ev.kind == "war_tech_compare" and detail.get("player") == player:
             return True
         return player in participants
@@ -503,7 +512,7 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
     if ev.kind in {"province_gained", "province_lost", "core_gained", "core_lost"}:
         return ev.tag == player
 
-    # 其他内政（发展度、科技、兵力…）：仅玩家
+    # 其他内政（发展度、科技、兵力、任务树…）：仅玩家
     if ev.kind in {
         "development_changed",
         "tech_changed",
@@ -514,6 +523,8 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
         "navy_changed",
         "stability_changed",
         "prestige_changed",
+        "player_tag_changed",
+        # mission_completed / missions_lost：任务书小节已下线，默认过滤掉
     }:
         return ev.tag == player
 

@@ -21,6 +21,11 @@ def test_ui_index_served() -> None:
     assert 'name="api' not in body.lower()
     assert "id=\"api" not in body.lower()
     assert ".env" in body
+    # 主路径是 LLM；Mock 折叠；全球事件不进主 UI
+    assert 'value="llm"' in body
+    assert "离线 / 无 Key" in body
+    assert "包含全球无关事件" not in body
+    assert 'id="include-global"' not in body
 
 
 def test_health_still_ok() -> None:
@@ -30,6 +35,8 @@ def test_health_still_ok() -> None:
     data = res.json()
     assert data["ok"] is True
     assert "mode" in data
+    assert "has_api_key" in data
+    assert isinstance(data["has_api_key"], bool)
     assert "save_dir" in data
 
 

@@ -140,8 +140,9 @@
 
     .mode {
       display: flex;
-      gap: 8px;
+      gap: 10px 16px;
       flex-wrap: wrap;
+      align-items: center;
     }
 
     .mode label {
@@ -163,17 +164,31 @@
       border-color: var(--brass);
       background: #f7efdf;
     }
-
-    .check {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.92rem;
-      color: var(--ink-muted);
-      cursor: pointer;
+    .mode label:has(input:disabled) {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
 
-    .check input { accent-color: var(--brass); }
+    .mode-advanced {
+      font-size: 0.88rem;
+      color: var(--ink-muted);
+    }
+    .mode-advanced summary {
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+    }
+    .mode-advanced summary::-webkit-details-marker { display: none; }
+    .mode-advanced summary::before {
+      content: "▸ ";
+      color: var(--brass);
+    }
+    .mode-advanced[open] summary::before { content: "▾ "; }
+    .mode-advanced .mode-mock-label {
+      margin-top: 8px;
+      font-weight: 500;
+      font-size: 0.88rem;
+    }
 
     .actions {
       display: flex;
@@ -334,7 +349,7 @@
       <div id="picker" class="hidden">
         <div class="meta">
           <span>存档目录：<strong id="save-dir">—</strong></span>
-          <span>服务模式：<strong id="health-mode">—</strong></span>
+          <span>Key：<strong id="health-key">—</strong></span>
         </div>
         <div class="grid">
           <label class="field">较早存档（prev）
@@ -346,13 +361,18 @@
         </div>
         <div class="row">
           <div class="mode" role="radiogroup" aria-label="分析模式">
-            <label><input type="radio" name="mode" value="mock" checked /> Mock（无需 Key）</label>
-            <label><input type="radio" name="mode" value="llm" /> LLM（读 .env Key）</label>
+            <label>
+              <input type="radio" name="mode" value="llm" id="mode-llm" />
+              LLM（读 .env Key）
+            </label>
+            <details class="mode-advanced" id="mode-advanced">
+              <summary>离线 / 无 Key</summary>
+              <label class="mode-mock-label">
+                <input type="radio" name="mode" value="mock" id="mode-mock" />
+                Mock（模板成稿，无需 Key）
+              </label>
+            </details>
           </div>
-          <label class="check">
-            <input type="checkbox" id="include-global" />
-            包含全球无关事件
-          </label>
         </div>
         <div class="actions">
           <button type="button" class="primary" id="analyze-btn">生成战报</button>
@@ -393,10 +413,12 @@
       emptyText: document.getElementById("empty-text"),
       picker: document.getElementById("picker"),
       saveDir: document.getElementById("save-dir"),
-      healthMode: document.getElementById("health-mode"),
+      healthKey: document.getElementById("health-key"),
       prev: document.getElementById("prev-select"),
       curr: document.getElementById("curr-select"),
-      includeGlobal: document.getElementById("include-global"),
+      modeLlm: document.getElementById("mode-llm"),
+      modeMock: document.getElementById("mode-mock"),
+      modeAdvanced: document.getElementById("mode-advanced"),
       analyzeBtn: document.getElementById("analyze-btn"),
       refreshBtn: document.getElementById("refresh-btn"),
       analyzeLoading: document.getElementById("analyze-loading"),
@@ -423,7 +445,20 @@
 
     function selectedMode() {
       const checked = document.querySelector('input[name="mode"]:checked');
-      return checked ? checked.value : "mock";
+      return checked ? checked.value : "llm";
+    }
+
+    function applyModeDefaults(health) {
+      const hasKey = !!health.has_api_key;
+      els.healthKey.textContent = hasKey ? "已配置（.env）" : "未配置";
+      els.modeLlm.disabled = !hasKey;
+      if (hasKey) {
+        els.modeLlm.checked = true;
+        els.modeAdvanced.open = false;
+      } else {
+        els.modeMock.checked = true;
+        els.modeAdvanced.open = true;
+      }
     }
 
     function fillSelect(select, files, preferredIndex) {
@@ -446,8 +481,31 @@
       });
     }
 
+    function friendlyFetchError(err) {
+      const msg = (err && err.message) ? String(err.message) : String(err || "");
+      // 浏览器在连不上后端时常见 TypeError: Failed to fetch
+      if (
+        err instanceof TypeError
+        || /failed to fetch/i.test(msg)
+        || /networkerror/i.test(msg)
+        || /load failed/i.test(msg)
+      ) {
+        return (
+          "无法连接本机战报服务（Failed to fetch）。请先启动："
+          + "uv sync --extra desktop 后运行 uv run eu4-chronicle-desktop，"
+          + "或 uv run eu4-chronicle serve；保持启动窗口不要关，再刷新本页。"
+        );
+      }
+      return msg || "请求失败";
+    }
+
     async function fetchJson(url, options) {
-      const res = await fetch(url, options);
+      let res;
+      try {
+        res = await fetch(url, options);
+      } catch (err) {
+        throw new Error(friendlyFetchError(err));
+      }
       let data = null;
       try {
         data = await res.json();
@@ -469,7 +527,7 @@
 
       try {
         const health = await fetchJson("/health");
-        els.healthMode.textContent = health.mode || "—";
+        applyModeDefaults(health);
         // 先展示 health 解析到的绝对路径，避免 /saves 失败时只剩「.」
         if (health.save_dir && health.save_dir !== ".") {
           els.saveDir.textContent = health.save_dir;
@@ -531,7 +589,7 @@
             prev,
             curr,
             mode: selectedMode(),
-            include_global: els.includeGlobal.checked,
+            include_global: false,
           }),
         });
         els.chipTitle.textContent = report.title || "战报";

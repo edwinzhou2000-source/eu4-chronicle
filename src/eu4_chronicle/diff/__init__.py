@@ -47,7 +47,63 @@ def diff_states(prev: GameState, curr: GameState) -> DiffResult:
         assert a is not None and b is not None
         events.extend(_diff_country(a, b))
 
-    events.extend(_diff_wars(prev.wars, curr.wars, player))
+    war_events = _diff_wars(prev.wars, curr.wars, player)
+    # active→previous 去重时：补 outcome/媾和日/lifetime 攻守；
+    # 禁止用归档 last_warscore_* 覆盖 prev active 的 player_warscore（归档后常失真）
+    curr_prev_by_name = {w.name: w for w in curr.previous_wars}
+    for e in war_events:
+        if e.kind != "war_ended":
+            continue
+        name = str((e.detail or {}).get("name") or "")
+        finished = curr_prev_by_name.get(name)
+        if finished is None:
+            continue
+        detail = dict(e.detail or {})
+        kept_score = detail.get("player_warscore")
+        kept_ticking = detail.get("player_ticking_warscore")
+        detail.update(_outcome_extras(finished, player))
+        if finished.attackers:
+            detail["attackers"] = finished.attackers
+        if finished.defenders:
+            detail["defenders"] = finished.defenders
+        detail["participants"] = _war_involved(finished)
+        # 战分：优先保留 active 消失前的分；仅缺失时才尝试归档分（且须可靠）
+        if kept_score is not None:
+            detail["player_warscore"] = kept_score
+        else:
+            archived = finished.score_for(player) if player else None
+            if archived is not None and not _archived_warscore_unreliable(
+                finished.outcome, archived
+            ):
+                detail["player_warscore"] = archived
+            elif archived is not None:
+                detail["player_warscore"] = None
+                detail["score_unreliable"] = True
+                detail["raw_last_warscore"] = archived
+        if kept_ticking is not None:
+            detail["player_ticking_warscore"] = kept_ticking
+        e.detail = detail
+        if finished.outcome == 2:
+            e.summary = f"战争「{name}」结束：攻方取胜"
+        elif finished.outcome == 3:
+            e.summary = f"战争「{name}」结束：守方取胜"
+        elif finished.outcome == 1:
+            e.summary = f"战争「{name}」结束：白和"
+    events.extend(war_events)
+    already_ended = {
+        str((e.detail or {}).get("name") or "")
+        for e in war_events
+        if e.kind == "war_ended"
+    }
+    events.extend(
+        _diff_previous_wars(
+            prev.previous_wars,
+            curr.previous_wars,
+            player,
+            skip_names=already_ended,
+        )
+    )
+    events.extend(_diff_player_missions(prev, curr))
 
     events.sort(key=lambda e: (e.kind, e.tag or "", e.summary))
     return DiffResult(
@@ -58,6 +114,64 @@ def diff_states(prev: GameState, curr: GameState) -> DiffResult:
         raw_event_count=len(events),
         filtered=False,
     )
+
+
+def _diff_player_missions(prev: GameState, curr: GameState) -> list[DiffEvent]:
+    """玩家任务树：按各档 player TAG 取 completed_missions 做集合差。
+
+    转 TAG / 换树时旧完成 ID 通常随国家块迁移；消失的 ID 单独标 missions_lost，
+    不计入新完成。
+    """
+    events: list[DiffEvent] = []
+    prev_tag = (prev.player or "").strip()
+    curr_tag = (curr.player or "").strip()
+    if not curr_tag and not prev_tag:
+        return events
+
+    if prev_tag and curr_tag and prev_tag != curr_tag:
+        events.append(
+            DiffEvent(
+                kind="player_tag_changed",
+                tag=curr_tag,
+                other_tag=prev_tag,
+                summary=f"玩家 TAG 变化：{prev_tag} → {curr_tag}（成立新国家或换皮）",
+                detail={"from": prev_tag, "to": curr_tag},
+            )
+        )
+
+    prev_c = prev.countries.get(prev_tag) if prev_tag else None
+    curr_c = curr.countries.get(curr_tag) if curr_tag else None
+    prev_set = set(prev_c.completed_missions if prev_c else [])
+    curr_set = set(curr_c.completed_missions if curr_c else [])
+
+    gained = sorted(curr_set - prev_set)
+    lost = sorted(prev_set - curr_set)
+    player = curr_tag or prev_tag
+
+    for mid in gained:
+        events.append(
+            DiffEvent(
+                kind="mission_completed",
+                tag=player,
+                summary=f"完成任务 {mid}",
+                detail={"mission_id": mid},
+            )
+        )
+
+    if lost:
+        events.append(
+            DiffEvent(
+                kind="missions_lost",
+                tag=player,
+                summary=(
+                    f"部分旧任务完成记录在新档中消失（{len(lost)} 项；"
+                    "可能换树重置），不计入新完成"
+                ),
+                detail={"mission_ids": lost, "count": len(lost)},
+            )
+        )
+
+    return events
 
 
 def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
@@ -206,8 +320,8 @@ def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
                 kind="manpower_changed",
                 tag=tag,
                 summary=(
-                    f"{tag} 人力 {a.manpower:.1f}/{a.max_manpower:.1f} → "
-                    f"{b.manpower:.1f}/{b.max_manpower:.1f}"
+                    f"{tag} 当前人力 {a.manpower:.1f}→{b.manpower:.1f}（千人）；"
+                    f"人力上限 {a.max_manpower:.1f}→{b.max_manpower:.1f}（千人）"
                 ),
                 detail={
                     "from": a.manpower,
@@ -313,8 +427,52 @@ def _war_scores(w: WarState) -> dict[str, float]:
     return out
 
 
+def _war_involved(w: WarState) -> list[str]:
+    """攻守列表 + participants TAG（previous_war 结束时 history rem 可能清空攻守）。"""
+    tags: list[str] = []
+    for t in [*w.attackers, *w.defenders]:
+        if t and t not in tags:
+            tags.append(t)
+    for p in w.participants:
+        if p.tag and p.tag not in tags:
+            tags.append(p.tag)
+    return tags
+
+
+def _archived_warscore_unreliable(outcome: int | None, attacker_score: float | None) -> bool:
+    """previous_war 归档后 last_warscore_* 常失真：与 outcome 符号矛盾则不可靠。"""
+    if outcome is None or attacker_score is None:
+        return False
+    if outcome == 2 and attacker_score < 0:
+        return True
+    if outcome == 3 and attacker_score > 0:
+        return True
+    return False
+
+
+def _outcome_extras(w: WarState, player: str = "") -> dict:
+    """仅 outcome / 媾和日 / 玩家胜负——不含战分字段。"""
+    extras: dict = {}
+    if w.outcome is not None:
+        extras["outcome"] = w.outcome
+        extras["outcome_label"] = {1: "draw", 2: "attacker_win", 3: "defender_win"}.get(
+            w.outcome, f"outcome_{w.outcome}"
+        )
+    if w.ended_date:
+        extras["ended_date"] = w.ended_date
+    if player:
+        pw = w.player_won(player)
+        if pw is not None:
+            extras["player_won"] = pw
+        elif w.outcome == 1:
+            extras["player_won"] = None
+            extras["peace_draw"] = True
+    return extras
+
+
 def _war_detail_extras(w: WarState, player: str = "") -> dict:
     extras: dict = {}
+    extras.update(_outcome_extras(w, player))
     if w.war_goal_type:
         extras["war_goal_type"] = w.war_goal_type
     if w.casus_belli:
@@ -360,6 +518,72 @@ def _war_detail_extras(w: WarState, player: str = "") -> dict:
     return extras
 
 
+def _diff_previous_wars(
+    prev: list[WarState],
+    curr: list[WarState],
+    player: str,
+    *,
+    skip_names: set[str] | None = None,
+) -> list[DiffEvent]:
+    """两档 previous_war 集合差：期内结束且未由 active 差集发出的战争。"""
+    events: list[DiffEvent] = []
+    skip = skip_names or set()
+    prev_names = {w.name for w in prev}
+    curr_map = {w.name: w for w in curr}
+    for name in sorted(set(curr_map) - prev_names):
+        if name in skip or not name:
+            continue
+        w = curr_map[name]
+        involved = _war_involved(w)
+        primary = (
+            player
+            if player in involved
+            else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else (involved[0] if involved else None)))
+        )
+        scores = _war_scores(w)
+        # 归档 last_warscore 为攻方视角；与 outcome 符号矛盾则不可靠
+        attacker_total = w.total_attacker_score
+        if attacker_total is None:
+            attacker_total = w.last_warscore_quarter
+        if attacker_total is None:
+            attacker_total = w.last_warscore_year
+        unreliable = _archived_warscore_unreliable(w.outcome, attacker_total)
+        player_ws = None if unreliable else (w.score_for(player) if player else None)
+        if w.outcome == 2:
+            summary = f"战争「{name}」于本区间内结束：攻方取胜（攻方 {w.attackers}，守方 {w.defenders}）"
+        elif w.outcome == 3:
+            summary = f"战争「{name}」于本区间内结束：守方取胜（攻方 {w.attackers}，守方 {w.defenders}）"
+        elif w.outcome == 1:
+            summary = f"战争「{name}」于本区间内结束：白和（攻方 {w.attackers}，守方 {w.defenders}）"
+        else:
+            summary = f"战争「{name}」于本区间内结束（攻方 {w.attackers}，守方 {w.defenders}）"
+        detail = {
+            "name": name,
+            "attackers": w.attackers,
+            "defenders": w.defenders,
+            "participants": involved,
+            "scores": scores,
+            "player_warscore": player_ws,
+            "source": "previous_war",
+            **_war_detail_extras(w, player),
+        }
+        # extras 可能再次写入 last_warscore；强制 player 分与不可靠标记
+        detail["player_warscore"] = player_ws
+        if unreliable:
+            detail["score_unreliable"] = True
+            detail["raw_last_warscore"] = attacker_total
+            detail.pop("player_ticking_warscore", None)
+        events.append(
+            DiffEvent(
+                kind="war_ended",
+                tag=primary,
+                summary=summary,
+                detail=detail,
+            )
+        )
+    return events
+
+
 def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[DiffEvent]:
     """战争事件：tag 标主参战方，detail 带攻守列表与 warscore；不过滤（由 filter 裁剪）。"""
     events: list[DiffEvent] = []
@@ -368,11 +592,11 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
 
     for name in sorted(set(curr_map) - set(prev_map)):
         w = curr_map[name]
-        involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
+        involved = _war_involved(w)
         primary = (
             player
             if player in involved
-            else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else None))
+            else (w.attackers[0] if w.attackers else (w.defenders[0] if w.defenders else (involved[0] if involved else None)))
         )
         scores = _war_scores(w)
         player_ws = w.score_for(player) if player else None
@@ -397,8 +621,12 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
         )
     for name in sorted(set(prev_map) - set(curr_map)):
         w = prev_map[name]
-        involved = list(dict.fromkeys([*w.attackers, *w.defenders]))
-        primary = player if player in involved else (w.attackers[0] if w.attackers else None)
+        involved = _war_involved(w)
+        primary = (
+            player
+            if player in involved
+            else (w.attackers[0] if w.attackers else (involved[0] if involved else None))
+        )
         scores = _war_scores(w)
         player_ws = w.score_for(player) if player else None
         events.append(
@@ -413,15 +641,14 @@ def _diff_wars(prev: list[WarState], curr: list[WarState], player: str) -> list[
                     "participants": involved,
                     "scores": scores,
                     "player_warscore": player_ws,
+                    "source": "active_war",
                     **_war_detail_extras(w, player),
                 },
             )
         )
     for name in sorted(set(prev_map) & set(curr_map)):
         a, b = prev_map[name], curr_map[name]
-        involved = list(
-            dict.fromkeys([*b.attackers, *b.defenders, *a.attackers, *a.defenders])
-        )
+        involved = list(dict.fromkeys([*_war_involved(b), *_war_involved(a)]))
         a_scores = _war_scores(a)
         b_scores = _war_scores(b)
         # 玩家参战：始终写入当前战分（即使跳变 <5），供叙事分档

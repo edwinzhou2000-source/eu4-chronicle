@@ -534,6 +534,8 @@ PROVINCE_ZH: dict[int, str] = {
 
 # 战争目标 type → 中文
 WAR_GOAL_ZH: dict[str, str] = {
+    "humiliate_rotw": "羞辱",
+    "humiliate": "羞辱",
     "take_claim": "夺取宣称",
     "take_province": "夺取省份",
     "take_core": "收复核心",
@@ -559,5 +561,6 @@ CASUS_BELLI_ZH: dict[str, str] = {
     "cb_restore_personal_union": "重建联合统治",
     "cb_change_government": "变更政府",
     "cb_humiliate": "羞辱",
+    "cb_humiliate_rotw": "羞辱",
     "cb_super_badboy": "遏制扩张",
 }

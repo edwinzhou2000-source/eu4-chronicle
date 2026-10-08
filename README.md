@@ -9,14 +9,14 @@
 1. 解析非铁人 `.eu4`（明文或 zip 压缩的 Clausewitz 文本）
 2. **默认只保留与玩家强相关的事件**（玩家国属性、参战/停战、省份得失、同盟/宿敌/附庸、直接对手）；全球无关战争（如远东大名互殴）默认丢弃
 3. 将 TAG / 省份 ID / 战争名 **可读化**（存档字段优先，否则内置中文名与战争名模板，再否则「国名(TAG)」/「省份N」）
-4. 主编输出一篇成稿：标题钩子 + 时间跨度 + 叙事 + 战局要点 + 外交/AE + 短结尾（**不会**把三角色原文粘三遍）
+4. 主编输出一篇成稿：标题钩子 + 时间跨度 + 叙事 + 战局要点 + 外交/AE + 短结尾（**不会**把多角色原文粘多遍；**不含**任务书小节）
 5. **AE 诚实表述**：无跳变时最多一句「未见高 AE / 包围网风险低」（勿写宿敌≠AE、宣战不结算 AE 等机制教程）；仅接近/超过 50 才警告包围网
 6. **事实锚定**：同对手「断盟+收附」合并为收附；**总战分**优先 `last_warscore_quarter`（季度快照，可能与 UI 实时略差），缺则 `last_warscore_year` / 非零 `war_score` / `defender_score`；**战争目标加分**（档内 ticking / `attacker_score`）成稿统一「战争目标加分 ±N」（**不加**「约 -25～+25」注解）且叙事/要点各至多一次；`participants.value` 为贡献度、`war_score≈0` 不作 UI 总战分；禁止粮草/补给线/「下一页按战分…」等空话；有战分时禁止「未解析到 / 不作胜负判断」
 7. **军科代差有据再评**：玩家参战战争从 curr 注入双方 `mil_tech`（可附 adm/dip）快照；无双方数字禁止「代差尚未拉开/同档起步」；早期差 1 级可写轻代差
 8. **交战军力（数量+质量）**：同一快照附带陆军/海军/人力，以及 `discipline` / `land_morale`（顶层、嵌套，或缺绝对士气时用 `army.regiment.morale` 中位数代理，成稿写「士气≈N」）；可选 `naval_morale`（`ship.morale` 中位数→「舰船士气」）；**双方都有士气代理时必须写入战局**；无纪律数值则省略且禁止臆造；无双方同维数字禁该维对比；禁止空口「阵营体量占优」；本轮不解析军队传统/职业度
 9. 提供 CLI 与本机 FastAPI（`127.0.0.1:18765`）
 
-**不做**：账号体系、数据库、云端上传存档、铁人加密档。
+**不做**：账号体系、数据库、云端上传存档、铁人加密档、随机事件弹窗回放、**任务书/任务树战报小节**。
 
 ## 安装
 
@@ -56,6 +56,15 @@ export EU4_SAVE_DIR="$HOME/Documents/Paradox Interactive/Europa Universalis IV/s
 ```
 
 > `.env` 里不要留空的 `EU4_SAVE_DIR=`（空串会被当成当前目录 `.`）。不需要自定义时删掉该行或注释掉即可。
+
+### 游戏目录（可选）
+
+战报成稿当前**不依赖**任务书 localisation。若以后恢复相关能力，可配置：
+
+```env
+# EU4_GAME_DIR=D:\Games\Steam\steamapps\common\Europa Universalis IV
+# EU4_PARADOX_DOCS=C:\Users\YourName\Documents\Paradox Interactive\Europa Universalis IV
+```
 
 ## Mock 与真实 LLM
 

@@ -58,6 +58,7 @@ def health() -> dict:
     return {
         "ok": True,
         "mode": settings.resolved_mode(),
+        "has_api_key": settings.has_openai_key(),
         "save_dir": save_dir,
         "save_dir_exists": Path(save_dir).exists(),
     }

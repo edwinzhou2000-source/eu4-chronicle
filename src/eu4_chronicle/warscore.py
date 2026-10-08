@@ -37,6 +37,13 @@ class WarStanding:
     war_goal_province: int | None = None
     occupied_provinces: int | None = None
     major_battles: list[dict] = field(default_factory=list)
+    ended: bool = False
+    source: str | None = None  # previous_war | active_war | None
+    # previous_war outcome：玩家和约胜负（优先于媾和前战分快照）
+    outcome: int | None = None
+    player_won: bool | None = None
+    peace_draw: bool = False
+    ended_date: str | None = None
 
 
 @dataclass
@@ -54,9 +61,19 @@ class WarAssessment:
     def primary(self) -> WarStanding | None:
         if not self.standings:
             return None
-        known = [s for s in self.standings if s.score_known]
-        pool = known or self.standings
-        return max(pool, key=lambda s: abs(s.player_score) if s.score_known else 0)
+        # 进行中战争优先；已结束则优先和约取胜，再看会战数
+        active = [s for s in self.standings if not s.ended]
+        pool = active or self.standings
+        return max(
+            pool,
+            key=lambda s: (
+                0 if s.ended else 1,
+                2 if s.player_won is True else (1 if s.player_won is None and s.ended else 0),
+                1 if s.score_known else 0,
+                abs(s.player_score) if s.score_known else 0,
+                len(s.major_battles or []),
+            ),
+        )
 
 
 def classify_warscore(score: float) -> str:
@@ -74,6 +91,12 @@ def classify_warscore(score: float) -> str:
 def tier_phrase(tier: str, *, score: float | None = None) -> str:
     """面向成稿的短句；仅 contested 可用「胜负未定」。"""
     sc = f"（战分 {score:+.0f}）" if score is not None else ""
+    if tier == "victory":
+        return "和约取胜" + (f"（战分 {score:+.0f}）" if score is not None else "")
+    if tier == "defeat":
+        return "和约落败" + (f"（战分 {score:+.0f}）" if score is not None else "")
+    if tier == "draw":
+        return "白和/平局收场"
     if tier == "decisive":
         return f"优势在握，基本打赢{sc}"
     if tier == "advantage":
@@ -142,6 +165,22 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             )
             by_war[name] = standing
 
+        if e.kind == "war_ended":
+            standing.ended = True
+        if detail.get("source"):
+            standing.source = str(detail["source"])
+        if detail.get("outcome") is not None:
+            try:
+                standing.outcome = int(detail["outcome"])
+            except (TypeError, ValueError):
+                pass
+        if "player_won" in detail:
+            pw = detail.get("player_won")
+            standing.player_won = bool(pw) if pw is not None else None
+        if detail.get("peace_draw"):
+            standing.peace_draw = True
+        if detail.get("ended_date"):
+            standing.ended_date = str(detail["ended_date"])
         if detail.get("name_zh"):
             standing.war_name_zh = detail["name_zh"]
         if detail.get("attackers"):
@@ -158,13 +197,15 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             standing.occupied_provinces = detail["occupied_provinces"]
         if detail.get("major_battles"):
             standing.major_battles = list(detail["major_battles"])
-        if detail.get("player_ticking_warscore") is not None:
+        # 已结束战争：战争目标加分/实时 ticking 易误导，不写入
+        if not standing.ended and detail.get("player_ticking_warscore") is not None:
             try:
                 standing.ticking_score = float(detail["player_ticking_warscore"])
             except (TypeError, ValueError):
                 pass
 
-        if score is not None:
+        # previous_war 归档分与 outcome 矛盾时 detail.score_unreliable=True，勿写入
+        if score is not None and not detail.get("score_unreliable"):
             if e.kind == "war_score_changed" and detail.get("from") is not None:
                 try:
                     standing.score_from = float(detail["from"])
@@ -176,7 +217,19 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
 
     standings = list(by_war.values())
     for s in standings:
-        if s.score_known:
+        if s.ended and (s.player_won is not None or s.peace_draw or s.outcome is not None):
+            # 已结束：胜负看 outcome，不用媾和前战分快照分档
+            if s.peace_draw or s.outcome == 1:
+                s.tier = "draw"
+            elif s.player_won is True:
+                s.tier = "victory"
+            elif s.player_won is False:
+                s.tier = "defeat"
+            elif s.score_known:
+                s.tier = classify_warscore(s.player_score)
+            else:
+                s.tier = "unknown"
+        elif s.score_known:
             s.tier = classify_warscore(s.player_score)
         else:
             s.tier = "unknown"
@@ -186,14 +239,46 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
 def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list[str]:
     """供 brief / 军师遵守的战分事实行。"""
     if not assessment.standings:
-        return ["本区间无玩家参与的可稽战争，或档内未解析到战争分数。"]
+        return [
+            "本区间无玩家参与的可稽战争（active_war / previous_war 均未检出玩家战事）。"
+            "战局要点仅用一两句说明即可；禁止用陆军编制、军科、人力等和平期数据充数。"
+        ]
     lines: list[str] = []
     for s in assessment.standings:
         wlabel = s.war_name_zh or s.war_name
-        if s.score_known:
+        side_bits: list[str] = []
+        if s.attackers:
+            side_bits.append(f"攻方 {', '.join(s.attackers)}")
+        if s.defenders:
+            side_bits.append(f"守方 {', '.join(s.defenders)}")
+        side = "；".join(side_bits)
+        if s.ended and (s.player_won is not None or s.peace_draw or s.outcome is not None):
+            if s.peace_draw or s.outcome == 1:
+                result = "白和/平局"
+            elif s.player_won is True:
+                result = "玩家和约取胜"
+            elif s.player_won is False:
+                result = "玩家和约落败"
+            else:
+                result = f"outcome={s.outcome}"
+            score_bit = ""
+            if s.score_known:
+                score_bit = f"；可靠战分 {s.player_score:+.0f}（来自消失前 active 或符号一致的归档分）"
+            else:
+                score_bit = (
+                    "；档内无可靠总战分（previous_war 的 last_warscore 与 outcome 矛盾时已丢弃，"
+                    "**禁止**引用负快照或写战分落后/胶着）"
+                )
+            date_bit = f"；媾和日 {s.ended_date}" if s.ended_date else ""
+            lines.append(
+                f"「{wlabel}」本区间内已结束 → {result}{score_bit}{date_bit}"
+                + (f"；{side}" if side else "")
+            )
+        elif s.score_known:
             lines.append(
                 f"「{wlabel}」玩家总战分 {s.player_score:+.0f} → tier={s.tier}："
                 f"{tier_phrase(s.tier, score=s.player_score)}"
+                + (f"；{side}" if side else "")
             )
             if s.ticking_score is not None:
                 lines.append(
@@ -201,14 +286,24 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
                     "系战争目标达成程度 bonus，主展示仍用总战分"
                 )
         else:
-            lines.append(f"「{wlabel}」档内未解析到玩家战分 → tier=unknown")
+            status = "本区间内已结束" if s.ended else "进行中"
+            battle_n = len(s.major_battles or [])
+            battle_bit = f"；会战可点名至多 1 场" if battle_n else ""
+            lines.append(
+                f"「{wlabel}」{status}，档内无总战分 → tier=unknown；"
+                f"须写战争名与参战结构（{side or '参战方见 Diff'}）{battle_bit}；"
+                "禁止假称「无可稽战争」；禁止堆砌占领数=0、原始 CB 键、多场战役损兵明细、编制充数"
+            )
     lines.append(
-        "硬性：主展示总战分；战争目标加分仅作目标达成程度附注（成稿写「战争目标加分 ±N」，勿加约±25范围注解）；"
+        "硬性：进行中战争主展示总战分；战争目标加分仅作目标达成程度附注；"
         "战分显著为正（≥50）须写优势在握/基本打赢；"
         "仅在 |总战分| 较低（胶着）时才写胜负未定；"
         "禁止无战分依据的「尘埃未定」。"
-        "有具体总战分时禁止写「战分未知」「不作胜负判断」。"
-        "成稿只正面写战争目标加分，勿写元注释免责声明或约±25范围注解。"
+        "已结束战争（previous_war）：胜负以 outcome 为准（2=攻方胜 3=守方胜 1=平局）；"
+        "归档 last_warscore 与 outcome 符号矛盾时已标不可靠——**禁止引用**；"
+        "仅 brief 给出的可靠战分可写。有 war_* 时必须点名战争，禁止「无可稽战争」套话。"
+        "硬性：war_ended = 本区间（两档之间）内发生并打完的战争；"
+        "禁止写成「本区间无进行中战争/本区间无战事」——那只是后期档保存当天无 active_war。"
     )
     return lines
 

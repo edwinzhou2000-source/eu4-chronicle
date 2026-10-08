@@ -64,10 +64,10 @@ def load_save_text(path: Path | str) -> str:
             # EU4 zip 通常有 gamestate；合并 meta 头部日期等
             parts: list[str] = []
             if "meta" in names and preferred != "meta":
-                parts.append(zf.read("meta").decode("utf-8", errors="replace"))
-            parts.append(zf.read(preferred).decode("utf-8", errors="replace"))
+                parts.append(_decode_eu4_bytes(zf.read("meta")))
+            parts.append(_decode_eu4_bytes(zf.read(preferred)))
             if "gamestate" in names and preferred != "gamestate":
-                parts.append(zf.read("gamestate").decode("utf-8", errors="replace"))
+                parts.append(_decode_eu4_bytes(zf.read("gamestate")))
             text = "\n".join(parts)
     else:
         # 明文；也可能是铁人二进制
@@ -75,7 +75,7 @@ def load_save_text(path: Path | str) -> str:
             raise IronmanSaveError(
                 "检测到铁人/加密存档。第一期仅支持非铁人明文或 zip 压缩的 .eu4。"
             )
-        text = raw.decode("utf-8", errors="replace")
+        text = _decode_eu4_bytes(raw)
 
     if "ironman=yes" in text[:4000] and "player=" not in text[:8000]:
         # 部分铁人仍有标记但内容加密后不可读
@@ -83,6 +83,21 @@ def load_save_text(path: Path | str) -> str:
             raise IronmanSaveError(
                 "检测到铁人存档且无法读取国家块。第一期不支持铁人加密档。"
             )
+    return text
+
+
+def _decode_eu4_bytes(raw: bytes) -> str:
+    """EU4 文本多为 UTF-8，地名偶发 Windows-1252（如 Rügen）；避免 � 乱码。"""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", errors="replace")
+    if "\ufffd" not in text:
+        return text
+    # utf-8 带替换符：整段按 cp1252 重试，若 � 更少则采用
+    alt = raw.decode("cp1252", errors="replace")
+    if alt.count("\ufffd") < text.count("\ufffd"):
+        return alt
     return text
 
 
@@ -130,6 +145,7 @@ def extract_game_state(root: ObjectNode) -> GameState:
             countries[tag] = _extract_country(tag, node)
 
     wars = _extract_wars(root)
+    previous_wars = _extract_previous_wars(root)
     province_names = _extract_province_names(root)
 
     return GameState(
@@ -138,10 +154,12 @@ def extract_game_state(root: ObjectNode) -> GameState:
         ironman=ironman,
         countries=countries,
         wars=wars,
+        previous_wars=previous_wars,
         province_names=province_names,
         raw_meta={
             "country_count": len(countries),
             "war_count": len(wars),
+            "previous_war_count": len(previous_wars),
             "province_name_count": len(province_names),
         },
     )
@@ -224,6 +242,8 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         if key.startswith("opinion_") and isinstance(val, (int, float)):
             opinion_of[key[8:]] = float(val)
 
+    completed_missions = _extract_completed_missions(node)
+
     return CountryState(
         tag=tag,
         name=name,
@@ -249,7 +269,24 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         owned_provinces=sorted(set(owned)),
         opinion_of=opinion_of,
         aggressive_expansion=ae_map,
+        completed_missions=completed_missions,
     )
+
+
+def _extract_completed_missions(node: ObjectNode) -> list[str]:
+    """``completed_missions={ "id1" "id2" }`` → 去重保序 ID 列表。"""
+    raw = node.get_list("completed_missions")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, ObjectNode):
+            continue
+        mid = str(item).strip().strip('"')
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        out.append(mid)
+    return out
 
 
 # 国块内可能出现的质量相关数值键（真档常无顶层裸字段，需扫嵌套 / modifier）
@@ -528,7 +565,26 @@ def _extract_wars(root: ObjectNode) -> list[WarState]:
         if name in seen:
             continue
         seen.add(name)
-        wars.append(_parse_one_war(war, root))
+        wars.append(_parse_one_war(war, root, finished=False))
+    return wars
+
+
+def _extract_previous_wars(root: ObjectNode) -> list[WarState]:
+    """抽取已结束战争（根级重复键 previous_war）。
+
+    真档在两份存档之间开打又打完的战争只出现在这里，不在 active_war。
+    结构与 active_war 类似，常以 history 记载攻守与会战，未必有实时总战分。
+    """
+    war_nodes: list[ObjectNode] = []
+    war_nodes.extend(root.all_objects("previous_war"))
+    seen: set[str] = set()
+    wars: list[WarState] = []
+    for war in war_nodes:
+        name = war.get_str("name") or war.get_str("war_name") or "未命名战争"
+        if name in seen:
+            continue
+        seen.add(name)
+        wars.append(_parse_one_war(war, root, finished=True))
     return wars
 
 
@@ -596,18 +652,34 @@ def _collect_raw_score_fields(war: ObjectNode) -> dict[str, float]:
     return out
 
 
-def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
+def _parse_one_war(
+    war: ObjectNode, root: ObjectNode, *, finished: bool = False
+) -> WarState:
     history = war.get_object("history")
     attackers = [str(x).strip('"') for x in war.get_list("attackers") if x]
     defenders = [str(x).strip('"') for x in war.get_list("defenders") if x]
     if not attackers and not defenders:
-        attackers, defenders = _sides_from_history(history)
+        # previous_war：结束时各方均 rem，当前集合常残留无关 TAG；用 lifetime
+        attackers, defenders = _sides_from_history(
+            history, lifetime=finished
+        )
+    elif finished:
+        # 顶层攻守偶发残留；仍以 history lifetime 为准
+        life_a, life_d = _sides_from_history(history, lifetime=True)
+        if life_a or life_d:
+            attackers, defenders = life_a, life_d
 
     participants = _parse_participants(war, attackers, defenders)
     goal = _parse_war_goal(war, history)
     battles = _parse_battles(history)
-    occupied = _count_occupied_provinces(root, attackers, defenders)
+    # 已结束战争的「当前占领」对 curr 地图无意义，勿写入 0 处干扰文案
+    occupied = None if finished else _count_occupied_provinces(root, attackers, defenders)
     raw_scores = _collect_raw_score_fields(war)
+
+    outcome = war.get_int_optional("outcome")
+    ended_date = war.get_str("action") or None
+    if ended_date:
+        ended_date = ended_date.strip().strip('"')
 
     state = WarState(
         name=war.get_str("name") or war.get_str("war_name") or "未命名战争",
@@ -625,6 +697,8 @@ def _parse_one_war(war: ObjectNode, root: ObjectNode) -> WarState:
         war_goal_tag=goal.get("tag"),
         occupied_provinces=occupied,
         battles=battles,
+        outcome=outcome,
+        ended_date=ended_date,
     )
     state.resolve_total_and_ticking()
     return state
@@ -916,25 +990,43 @@ def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNo
     return items
 
 
-def _sides_from_history(history: ObjectNode | None) -> tuple[list[str], list[str]]:
-    """从 history 的 add_/rem_ attacker/defender 还原当前参战方。"""
+def _sides_from_history(
+    history: ObjectNode | None, *, lifetime: bool = False
+) -> tuple[list[str], list[str]]:
+    """从 history 的 add_/rem_ attacker/defender 还原参战方。
+
+    lifetime=False（active）：以 rem 后的当前集合为准。
+    lifetime=True（previous_war）：忽略 rem，保留曾加入的攻/守方——
+    结束时 rem 常把主角清掉，却留下无关残留 TAG。
+    """
     attackers: set[str] = set()
     defenders: set[str] = set()
+    ever_att: set[str] = set()
+    ever_def: set[str] = set()
     for _date, block in _iter_history_blocks(history):
         for raw in block.get_list("add_attacker"):
             t = str(raw).strip('"')
             if t and t not in {"yes", "no"}:
                 attackers.add(t)
                 defenders.discard(t)
+                ever_att.add(t)
+                ever_def.discard(t)
         for raw in block.get_list("add_defender"):
             t = str(raw).strip('"')
             if t and t not in {"yes", "no"}:
                 defenders.add(t)
                 attackers.discard(t)
-        for raw in block.get_list("rem_attacker"):
-            attackers.discard(str(raw).strip('"'))
-        for raw in block.get_list("rem_defender"):
-            defenders.discard(str(raw).strip('"'))
+                ever_def.add(t)
+                ever_att.discard(t)
+        if not lifetime:
+            for raw in block.get_list("rem_attacker"):
+                attackers.discard(str(raw).strip('"'))
+            for raw in block.get_list("rem_defender"):
+                defenders.discard(str(raw).strip('"'))
+    if lifetime:
+        return sorted(ever_att), sorted(ever_def)
+    if not attackers and not defenders and (ever_att or ever_def):
+        return sorted(ever_att), sorted(ever_def)
     return sorted(attackers), sorted(defenders)
 
 

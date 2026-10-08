@@ -12,6 +12,8 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PARADOX_SAVE_TAIL = Path("Paradox Interactive") / "Europa Universalis IV" / "save games"
+_PARADOX_DOCS_TAIL = Path("Paradox Interactive") / "Europa Universalis IV"
+_EU4_STEAM_TAIL = Path("steamapps") / "common" / "Europa Universalis IV"
 _SKIP_WIN_USERS = frozenset(
     {
         "public",
@@ -166,6 +168,90 @@ def default_windows_save_dir() -> Path:
     return resolve_default_save_dir()
 
 
+def iter_default_paradox_docs_candidates() -> list[Path]:
+    """Documents/Paradox Interactive/Europa Universalis IV（含 dlc_load.json）。"""
+    out: list[Path] = []
+    if _is_wsl():
+        for user in _windows_usernames():
+            base = Path("/mnt/c/Users") / user
+            for docs in ("Documents", "文档"):
+                out.append(base / docs / _PARADOX_DOCS_TAIL)
+                out.append(base / "OneDrive" / docs / _PARADOX_DOCS_TAIL)
+    userprofile = os.environ.get("USERPROFILE")
+    if userprofile:
+        out.append(Path(userprofile) / "Documents" / _PARADOX_DOCS_TAIL)
+    out.append(Path.home() / "Documents" / _PARADOX_DOCS_TAIL)
+    seen: set[str] = set()
+    uniq: list[Path] = []
+    for p in out:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+    return uniq
+
+
+def resolve_default_paradox_docs() -> Path | None:
+    for cand in iter_default_paradox_docs_candidates():
+        try:
+            if cand.is_dir() and (cand / "dlc_load.json").is_file():
+                return cand.expanduser().resolve(strict=False)
+        except OSError:
+            continue
+    for cand in iter_default_paradox_docs_candidates():
+        try:
+            if cand.is_dir():
+                return cand.expanduser().resolve(strict=False)
+        except OSError:
+            continue
+    return None
+
+
+def iter_default_game_dir_candidates() -> list[Path]:
+    """常见 Steam 安装路径。"""
+    out: list[Path] = []
+    if _is_wsl():
+        for drive in ("d", "c", "e"):
+            out.append(Path(f"/mnt/{drive}/Games/Steam") / _EU4_STEAM_TAIL)
+            out.append(Path(f"/mnt/{drive}/SteamLibrary") / _EU4_STEAM_TAIL)
+            out.append(
+                Path(f"/mnt/{drive}/Program Files (x86)/Steam") / _EU4_STEAM_TAIL
+            )
+            out.append(Path(f"/mnt/{drive}/Program Files/Steam") / _EU4_STEAM_TAIL)
+    # Windows / 原生
+    for root in (
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("ProgramFiles"),
+        r"D:\Games\Steam",
+        r"C:\Program Files (x86)\Steam",
+    ):
+        if not root:
+            continue
+        converted = windows_drive_path_to_wsl(str(root)) if _is_wsl() else None
+        base = Path(converted or root)
+        out.append(base / _EU4_STEAM_TAIL)
+    seen: set[str] = set()
+    uniq: list[Path] = []
+    for p in out:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+    return uniq
+
+
+def resolve_default_game_dir() -> Path | None:
+    for cand in iter_default_game_dir_candidates():
+        try:
+            if cand.is_dir() and (cand / "localisation").is_dir():
+                return cand.expanduser().resolve(strict=False)
+        except OSError:
+            continue
+    return None
+
+
 def windows_drive_path_to_wsl(path_str: str) -> str | None:
     """若为 Windows 盘符路径（``C:\\...`` / ``C:/...``），转为 ``/mnt/<drive>/...``；否则 None。"""
     raw = path_str.strip().strip('"').strip("'")
@@ -231,6 +317,14 @@ class Settings(BaseSettings):
         default_factory=lambda: resolve_default_save_dir(),
         validation_alias="EU4_SAVE_DIR",
     )
+    game_dir: Path | None = Field(
+        default_factory=resolve_default_game_dir,
+        validation_alias="EU4_GAME_DIR",
+    )
+    paradox_docs: Path | None = Field(
+        default_factory=resolve_default_paradox_docs,
+        validation_alias="EU4_PARADOX_DOCS",
+    )
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     openai_base_url: str = Field(
         default="https://api.openai.com/v1",
@@ -243,7 +337,7 @@ class Settings(BaseSettings):
     mode: str = Field(default="mock", validation_alias="EU4_CHRONICLE_MODE")
     host: str = Field(default="127.0.0.1", validation_alias="EU4_CHRONICLE_HOST")
     port: int = Field(default=18765, validation_alias="EU4_CHRONICLE_PORT")
-    agent_concurrency: int = Field(default=3, validation_alias="EU4_CHRONICLE_CONCURRENCY")
+    agent_concurrency: int = Field(default=4, validation_alias="EU4_CHRONICLE_CONCURRENCY")
 
     @field_validator("save_dir", mode="before")
     @classmethod
@@ -257,6 +351,40 @@ class Settings(BaseSettings):
             return resolve_default_save_dir()
         # 尽早转写，避免 Path 在 POSIX 上把反斜杠弄乱
         return wslize_save_dir_value(value)
+
+    @field_validator("game_dir", mode="before")
+    @classmethod
+    def _blank_game_dir_as_default(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return resolve_default_game_dir()
+        if isinstance(value, Path) and str(value) in {".", ""}:
+            return resolve_default_game_dir()
+        return wslize_save_dir_value(value)
+
+    @field_validator("paradox_docs", mode="before")
+    @classmethod
+    def _blank_paradox_docs_as_default(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return resolve_default_paradox_docs()
+        if isinstance(value, Path) and str(value) in {".", ""}:
+            return resolve_default_paradox_docs()
+        return wslize_save_dir_value(value)
+
+    @field_validator("game_dir", "paradox_docs", mode="after")
+    @classmethod
+    def _normalize_optional_path(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
+        raw = str(value).strip()
+        if not raw or raw in {".", "./"}:
+            return None
+        wslized = wslize_save_dir_value(raw)
+        if isinstance(wslized, str):
+            value = Path(wslized)
+        try:
+            return value.expanduser().resolve(strict=False)
+        except OSError:
+            return value.expanduser().absolute()
 
     @field_validator("save_dir", mode="after")
     @classmethod

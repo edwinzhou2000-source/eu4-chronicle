@@ -42,6 +42,8 @@ class CountryState(BaseModel):
     owned_provinces: list[int] = Field(default_factory=list)
     opinion_of: dict[str, float] = Field(default_factory=dict)
     aggressive_expansion: dict[str, float] = Field(default_factory=dict)
+    # 任务树：存档 completed_missions 列表（仅 ID；正文靠游戏/Mod 本地化）
+    completed_missions: list[str] = Field(default_factory=list)
 
 
 class WarParticipant(BaseModel):
@@ -92,6 +94,33 @@ class WarState(BaseModel):
     war_goal_tag: str | None = None
     occupied_provinces: int | None = None
     battles: list[WarBattle] = Field(default_factory=list)
+    # previous_war：1=白和/平局 2=攻方胜 3=守方胜（eu4-war-explorer / 真档对照）
+    outcome: int | None = None
+    ended_date: str | None = None  # action= 媾和日
+
+    def outcome_attacker_won(self) -> bool | None:
+        if self.outcome == 2:
+            return True
+        if self.outcome == 3:
+            return False
+        if self.outcome == 1:
+            return None  # 平局：非胜非负
+        return None
+
+    def player_won(self, tag: str) -> bool | None:
+        """玩家视角和约胜负；无 outcome 时返回 None。"""
+        if not tag or self.outcome is None:
+            return None
+        if self.outcome == 1:
+            return None
+        att_won = self.outcome_attacker_won()
+        if att_won is None:
+            return None
+        if tag in self.attackers:
+            return att_won
+        if tag in self.defenders:
+            return not att_won
+        return None
 
     def score_for(self, tag: str) -> float | None:
         """玩家/国家视角**总**战争分数（非 ticking）。"""
@@ -243,6 +272,8 @@ class GameState(BaseModel):
     ironman: bool = False
     countries: dict[str, CountryState] = Field(default_factory=dict)
     wars: list[WarState] = Field(default_factory=list)
+    # 已结束战争（存档 previous_war）；用于补全两档之间开打又打完的战争
+    previous_wars: list[WarState] = Field(default_factory=list)
     province_names: dict[int, str] = Field(default_factory=dict)
     source_path: str | None = None
     raw_meta: dict[str, Any] = Field(default_factory=dict)
@@ -274,6 +305,9 @@ EventKind = Literal[
     "subject_changed",
     "stability_changed",
     "prestige_changed",
+    "mission_completed",
+    "player_tag_changed",
+    "missions_lost",
 ]
 
 
@@ -299,7 +333,7 @@ class DiffResult(BaseModel):
 
 
 class AgentSection(BaseModel):
-    role: Literal["historian", "strategist", "diplomat", "editor"]
+    role: Literal["historian", "strategist", "diplomat", "chronicler", "editor"]
     title: str
     content: str
     mock: bool = False

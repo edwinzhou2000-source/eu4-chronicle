@@ -1,4 +1,4 @@
-"""编排：parse → diff → 玩家过滤 → 可读化 → 三角色并行 → 主编成稿。"""
+"""编排：parse → diff → 玩家过滤 → 可读化 → 多角色并行 → 主编成稿。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ import asyncio
 from pathlib import Path
 
 from eu4_chronicle.ae import AeAssessment, assess_player_ae
-from eu4_chronicle.agents import make_brief, run_diplomat, run_editor, run_historian, run_strategist
+from eu4_chronicle.agents import (
+    make_brief,
+    run_diplomat,
+    run_editor,
+    run_historian,
+    run_strategist,
+)
 from eu4_chronicle.config import Settings, get_settings
 from eu4_chronicle.diff import diff_states
 from eu4_chronicle.filter import filter_diff
@@ -51,6 +57,7 @@ async def analyze_states(
         }
     )
     names = NameResolver.from_states(prev, curr)
+    # 任务书小节已下线：不过本地化 enrich，过滤后也不再喂给纪事官
     readable = names.rewrite_diff(filtered)
     player = readable.player
     ae_snapshot: dict[str, float] = {}
@@ -87,7 +94,15 @@ async def synthesize(
         _guard(run_diplomat(settings, diff, brief, names=names, ae=ae)),
     )
     editor = await run_editor(
-        settings, diff, brief, historian, strategist, diplomat, names=names, ae=ae
+        settings,
+        diff,
+        brief,
+        historian,
+        strategist,
+        diplomat,
+        chronicler=None,
+        names=names,
+        ae=ae,
     )
 
     player_label = names.country(diff.player) if diff.player else "EU4"

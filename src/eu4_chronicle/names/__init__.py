@@ -26,9 +26,11 @@ def _fmt_force_side_zh(label: str, snap: dict) -> str:
     if snap.get("manpower") is not None:
         mx = snap.get("max_manpower")
         if mx is not None:
-            bits.append(f"人力{float(snap['manpower']):.1f}/{float(mx):.1f}")
+            bits.append(
+                f"当前人力{float(snap['manpower']):.1f}/上限{float(mx):.1f}（千人）"
+            )
         else:
-            bits.append(f"人力{float(snap['manpower']):.1f}")
+            bits.append(f"当前人力{float(snap['manpower']):.1f}（千人）")
     if snap.get("discipline") is not None:
         bits.append(f"纪律{_fmt_quality_num(snap['discipline'])}")
     if snap.get("land_morale") is not None:
@@ -106,24 +108,31 @@ class NameResolver:
             return save_name
         return f"省份{i}"
 
-    def war_goal(self, goal_type: str | None) -> str:
+    def war_goal(self, goal_type: str | None) -> str | None:
+        """有中文映射才返回；原始脚本键（含 _）返回 None，避免成稿泄漏。"""
         from eu4_chronicle.names.catalog import WAR_GOAL_ZH
 
         if not goal_type:
-            return "未知目标"
-        return WAR_GOAL_ZH.get(goal_type, goal_type)
+            return None
+        return WAR_GOAL_ZH.get(goal_type)
 
-    def casus_belli(self, cb: str | None) -> str:
+    def casus_belli(self, cb: str | None) -> str | None:
         from eu4_chronicle.names.catalog import CASUS_BELLI_ZH
 
         if not cb:
-            return "未知"
-        return CASUS_BELLI_ZH.get(cb, cb)
+            return None
+        return CASUS_BELLI_ZH.get(cb)
 
-    def provinces(self, ids: list[int] | list[str] | None) -> str:
+    def provinces(
+        self, ids: list[int] | list[str] | None, *, limit: int | None = None
+    ) -> str:
         if not ids:
             return "（无）"
-        return "、".join(self.province(p) for p in ids)
+        labels = [self.province(p) for p in ids]
+        if limit is not None and len(labels) > limit:
+            head = "、".join(labels[:limit])
+            return f"{head}等共{len(labels)}处"
+        return "、".join(labels)
 
     def war(self, name: str | None, *, attackers: list | None = None, defenders: list | None = None) -> str:
         return translate_war_name(
@@ -144,6 +153,22 @@ class NameResolver:
 
         if ev.kind == "date_changed":
             summary = f"时间从 {detail.get('from') or '?'} 推进至 {detail.get('to') or '?'}"
+        elif ev.kind == "player_tag_changed":
+            summary = (
+                f"玩家 TAG 变化：{detail.get('from') or other or '?'} → "
+                f"{detail.get('to') or tag or '?'}（成立新国家或换皮）"
+            )
+        elif ev.kind == "mission_completed":
+            from eu4_chronicle.localisation import is_readable_display_title
+
+            title = detail.get("title")
+            if title and detail.get("loc_found") and is_readable_display_title(str(title)):
+                summary = f"已完成任务「{title}」"
+            else:
+                summary = "已完成一项任务（无可用本地化标题）"
+        elif ev.kind == "missions_lost":
+            n = detail.get("count") or len(detail.get("mission_ids") or [])
+            summary = f"部分旧任务完成记录在新档中消失（{n} 项；可能换树重置），不计入新完成"
         elif ev.kind == "province_gained":
             summary = f"{c(tag)} 取得 {p(detail.get('provinces'))}"
         elif ev.kind == "province_lost":
@@ -286,8 +311,10 @@ class NameResolver:
                 summary = f"{c(tag)} 君主更迭"
         elif ev.kind == "manpower_changed":
             summary = (
-                f"{c(tag)} 人力 {detail.get('from', 0):.1f}/{detail.get('max_from', 0):.1f} → "
-                f"{detail.get('to', 0):.1f}/{detail.get('max_to', 0):.1f}"
+                f"{c(tag)} 当前人力 {float(detail.get('from', 0)):.1f}→"
+                f"{float(detail.get('to', 0)):.1f}（千人）；"
+                f"人力上限 {float(detail.get('max_from', 0)):.1f}→"
+                f"{float(detail.get('max_to', 0)):.1f}（千人）"
             )
         elif ev.kind == "army_changed":
             summary = f"{c(tag)} 陆军约 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"

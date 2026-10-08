@@ -31,6 +31,7 @@ async def test_analyze_samples_mock():
     assert "## 叙事" in md
     assert "## 战局要点" in md
     assert "## 外交与 AE" in md
+    assert "## 任务与剧情" not in md
     assert "拜占庭" in md
     # 不再使用旧空话
     assert "共录" not in md

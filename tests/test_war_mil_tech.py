@@ -173,7 +173,8 @@ def test_mock_without_opponent_tech_no_false_parity():
     for text in (narrative, war, editor):
         for phrase in FORBIDDEN_WITHOUT_BOTH:
             assert phrase not in text, f"不应出现「{phrase}」于: {text[:120]}"
-    assert "无双方军科对比数字" in brief or "禁止写" in brief
+    assert "勿写入成稿" in brief or "禁止套话" in brief
+    assert "本 Diff 无双方军科对比数字" not in brief
     # 玩家升级事实仍可写
     assert "军事科技" in narrative or "3" in narrative
 
