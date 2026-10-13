@@ -13,7 +13,7 @@ from eu4_chronicle.pipeline import analyze_saves
 
 app = typer.Typer(
     name="eu4-chronicle",
-    help="EU4 本机存档 Diff 与多角色战报（白银段）",
+    help="EU4 本机存档 Diff 与多角色战报",
     no_args_is_help=True,
 )
 
@@ -32,12 +32,15 @@ def list_saves(
     if not directory.exists():
         typer.echo(f"存档目录不存在: {directory}", err=True)
         raise typer.Exit(code=1)
-    files = sorted(directory.glob("*.eu4"))
+    from eu4_chronicle.saves import list_eu4_files
+
+    files = list_eu4_files(directory)
     if not files:
         typer.echo(f"未找到 .eu4：{directory}")
         return
     for f in files:
-        typer.echo(f"{f.name}\t{f.stat().st_size}\t{f}")
+        tag = "\t[autosave]" if f.get("autosave") else ""
+        typer.echo(f"{f['name']}\t{f['size']}\t{f['path']}{tag}")
 
 
 @app.command("dump-war-scores")

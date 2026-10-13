@@ -76,10 +76,10 @@ def _fmt_force_side(tag: str, snap: dict[str, float | int | bool]) -> str:
         mx = snap.get("max_manpower")
         if mx is not None:
             bits.append(
-                f"当前人力{float(snap['manpower']):.1f}/上限{float(mx):.1f}（千人）"
+                f"当前人力{float(snap['manpower']):.1f}k/上限{float(mx):.1f}k"
             )
         else:
-            bits.append(f"当前人力{float(snap['manpower']):.1f}（千人）")
+            bits.append(f"当前人力{float(snap['manpower']):.1f}k")
     if "discipline" in snap:
         bits.append(f"纪律{_fmt_quality(snap['discipline'])}")
     if "land_morale" in snap:
@@ -355,6 +355,47 @@ def consolidate_subject_alliance(
     return out
 
 
+# 与纯断盟对照：有这些才算「其它外交戏」，断盟才值得进战报
+_DIPLO_DRAMA_KINDS = frozenset(
+    {
+        "alliance_formed",
+        "subject_changed",
+        "rival_set",
+        "rival_cleared",
+        "ae_changed",
+    }
+)
+
+
+def drop_lonely_alliance_breaks(
+    events: list[DiffEvent],
+    *,
+    player: str,
+) -> list[DiffEvent]:
+    """纯断盟且无其它外交戏 → 从战报 Diff 去掉（避免「旧约既解 / 不再倚仗」空话）。
+
+    战争、得地不算外交戏；有新盟/收附/宿敌/AE 跳变时保留断盟事实句。
+    """
+    if not player:
+        return list(events)
+
+    def _involves_player(e: DiffEvent) -> bool:
+        if e.tag == player or e.other_tag == player:
+            return True
+        if e.kind == "subject_changed" and e.tag == player:
+            return True
+        if e.kind == "ae_changed":
+            return e.tag == player or e.other_tag == player
+        return False
+
+    has_drama = any(
+        e.kind in _DIPLO_DRAMA_KINDS and _involves_player(e) for e in events
+    )
+    if has_drama:
+        return list(events)
+    return [e for e in events if e.kind != "alliance_broken"]
+
+
 def player_sphere(prev: GameState, curr: GameState, player: str) -> set[str]:
     """玩家 + 盟国/宿敌/附庸 + AE/好感对象 + 玩家参战对手。"""
     sphere: set[str] = {player} if player else set()
@@ -441,6 +482,8 @@ def filter_diff(
     )
     if player:
         filtered = consolidate_subject_alliance(filtered, player=player)
+        if not include_global:
+            filtered = drop_lonely_alliance_breaks(filtered, player=player)
     # 战争参与方军科快照：从 curr 注入，默认进入玩家过滤结果
     if player and curr is not None:
         filtered = enrich_war_tech_snapshots(filtered, curr=curr, player=player)
@@ -461,26 +504,23 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
     if ev.kind in {"mission_completed", "missions_lost"}:
         return False
 
+    # 战报只写得地（province_gained），不写造核/新增核心
+    if ev.kind == "core_gained":
+        return False
+
     detail = ev.detail or {}
     tags_in_event = _event_tags(ev)
 
     if ev.kind in {"war_started", "war_ended", "war_tech_compare"}:
-        participants = (
-            set(detail.get("attackers") or [])
-            | set(detail.get("defenders") or [])
-            | set(detail.get("participants") or [])
-        )
+        # 默认只认攻守列表；participants 残留 TAG（尤其 previous_war）不当玩家战争
+        sides = set(detail.get("attackers") or []) | set(detail.get("defenders") or [])
         if ev.kind == "war_tech_compare" and detail.get("player") == player:
             return True
-        return player in participants
+        return player in sides
 
     if ev.kind == "war_score_changed":
-        participants = (
-            set(detail.get("participants") or [])
-            | set(detail.get("attackers") or [])
-            | set(detail.get("defenders") or [])
-        )
-        return bool(participants) and player in participants
+        sides = set(detail.get("attackers") or []) | set(detail.get("defenders") or [])
+        return bool(sides) and player in sides
 
     # 玩家国家自身属性 / 省份 / 核心
     if ev.tag == player:
@@ -508,8 +548,8 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
                 return True
         return False
 
-    # 省份得失：仅玩家；远方伊藤/岛津等一律丢弃
-    if ev.kind in {"province_gained", "province_lost", "core_gained", "core_lost"}:
+    # 省份得失 / 失去核心：仅玩家；远方伊藤/岛津等一律丢弃（core_gained 已在上方丢掉）
+    if ev.kind in {"province_gained", "province_lost", "core_lost"}:
         return ev.tag == player
 
     # 其他内政（发展度、科技、兵力、任务树…）：仅玩家

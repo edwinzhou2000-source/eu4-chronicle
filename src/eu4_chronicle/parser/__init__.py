@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from eu4_chronicle.models import (
+    CountryRelation,
     CountryState,
     GameState,
     Monarch,
@@ -134,21 +135,27 @@ def extract_game_state(root: ObjectNode) -> GameState:
     ironman = bool(root.get("ironman", False))
 
     countries: dict[str, CountryState] = {}
+    # countries={} 键序（含 --- 空槽）= opinion_cache 下标
+    country_tag_order: list[str] = []
     countries_node = root.get_object("countries")
     if countries_node is not None:
         for tag, node in countries_node.values.items():
+            country_tag_order.append(str(tag))
             if not isinstance(node, ObjectNode):
                 continue
             if len(tag) != 3 or not tag.isalnum():
-                # 跳过非 tag 键
+                # 跳过非 tag 键（如 ---）
                 continue
             countries[tag] = _extract_country(tag, node)
+
+    _fill_ae_maps_from_relations(countries)
+    _apply_opinion_cache(countries, countries_node, country_tag_order)
 
     wars = _extract_wars(root)
     previous_wars = _extract_previous_wars(root)
     province_names = _extract_province_names(root)
 
-    return GameState(
+    state = GameState(
         date=date,
         player=player,
         ironman=ironman,
@@ -163,6 +170,50 @@ def extract_game_state(root: ObjectNode) -> GameState:
             "province_name_count": len(province_names),
         },
     )
+    return prune_ghost_active_wars(state)
+
+
+def _country_is_living(state: GameState, tag: str) -> bool:
+    """存活：在 countries 中且仍有省份（事件和谈后敌方常成无地残留）。"""
+    c = state.countries.get(tag)
+    return bool(c and c.owned_provinces)
+
+
+def is_ghost_active_war(w: WarState, state: GameState, *, player: str | None = None) -> bool:
+    """对侧 TAG 非空但无一存活 → 幽灵 active_war（事件和谈脏数据）。
+
+    若玩家本国也无地（合成测未写 owned_provinces），不剪除，避免误伤夹具。
+    """
+    player = player if player is not None else state.player
+    if player and player in w.attackers:
+        foes = list(w.defenders)
+        if not _country_is_living(state, player):
+            return False
+    elif player and player in w.defenders:
+        foes = list(w.attackers)
+        if not _country_is_living(state, player):
+            return False
+    else:
+        # 无玩家视角：一侧全灭、另一侧仍有存活 → 幽灵
+        att_live = any(_country_is_living(state, t) for t in w.attackers)
+        def_live = any(_country_is_living(state, t) for t in w.defenders)
+        if w.attackers and w.defenders and ((att_live and not def_live) or (def_live and not att_live)):
+            return True
+        return False
+    if not foes:
+        return False
+    return not any(_country_is_living(state, t) for t in foes)
+
+
+def prune_ghost_active_wars(state: GameState) -> GameState:
+    """从 GameState.wars 去掉事件和谈残留的幽灵战争；不动 previous_wars。"""
+    kept = [w for w in state.wars if not is_ghost_active_war(w, state)]
+    if len(kept) == len(state.wars):
+        return state
+    meta = dict(state.raw_meta or {})
+    meta["war_count"] = len(kept)
+    meta["ghost_wars_pruned"] = len(state.wars) - len(kept)
+    return state.model_copy(update={"wars": kept, "raw_meta": meta})
 
 
 def _extract_country(tag: str, node: ObjectNode) -> CountryState:
@@ -243,12 +294,40 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
             opinion_of[key[8:]] = float(val)
 
     completed_missions = _extract_completed_missions(node)
+    relations = _extract_active_relations(node)
+
+    gov_name = (node.get_str("government_name") or "").strip().strip('"')
+    changed_from = (node.get_str("changed_tag_from") or "").strip().strip('"').upper()
+    # 真档 previous_country_tags 常为标量 "HOL"，偶发列表
+    prev_tags: list[str] = []
+    prev_scalar = (node.get_str("previous_country_tags") or "").strip().strip('"').upper()
+    if prev_scalar:
+        prev_tags.append(prev_scalar)
+    for x in node.get_list("previous_country_tags"):
+        if x is None:
+            continue
+        pt = str(x).strip().strip('"').upper()
+        if pt and pt not in prev_tags:
+            prev_tags.append(pt)
+    if not changed_from:
+        # 换皮记录常在 history 日期块内
+        hist = node.get_object("history")
+        if hist is not None:
+            for _k, sub in hist.values.items():
+                if isinstance(sub, ObjectNode):
+                    cf = (sub.get_str("changed_tag_from") or "").strip().strip('"').upper()
+                    if cf:
+                        changed_from = cf
+                        break
+    if changed_from and changed_from not in prev_tags:
+        prev_tags.insert(0, changed_from)
 
     return CountryState(
         tag=tag,
         name=name,
-        development=node.get_float("development")
-        or node.get_float("raw_development")
+        # UI 总发展度多对应 raw_development；development 常为本土子集，勿优先
+        development=node.get_float("raw_development")
+        or node.get_float("development")
         or float(len(owned) * 10),
         technology=technology,
         religion=node.get_str("religion"),
@@ -269,8 +348,118 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         owned_provinces=sorted(set(owned)),
         opinion_of=opinion_of,
         aggressive_expansion=ae_map,
+        relations=relations,
         completed_missions=completed_missions,
+        government_name=gov_name,
+        changed_tag_from=changed_from,
+        previous_country_tags=prev_tags,
     )
+
+
+def _is_relation_tag(key: str) -> bool:
+    """active_relations 下的 TAG 键（含 NE8 / EN1 等三位字母数字）。"""
+    return len(key) == 3 and key.isalnum() and key[0].isalpha()
+
+
+def _extract_active_relations(node: ObjectNode) -> dict[str, CountryRelation]:
+    """从 active_relations 抽取对各国的 AE（侵略扩张好感修正）、总好感、停战。"""
+    rel_root = node.get_object("active_relations")
+    if rel_root is None:
+        return {}
+    out: dict[str, CountryRelation] = {}
+    for other, rel_node in rel_root.values.items():
+        if not isinstance(rel_node, ObjectNode) or not _is_relation_tag(str(other)):
+            continue
+        ae = 0.0
+        opinion_sum = 0.0
+        has_opinion_mod = False
+        for op in rel_node.all_objects("opinion"):
+            has_opinion_mod = True
+            cur = op.get_float("current_opinion")
+            opinion_sum += cur
+            if (op.get_str("modifier") or "").strip('"') == "aggressive_expansion":
+                # AE 好感修正为负；AE 分数 = |current_opinion|
+                ae = max(ae, abs(cur))
+        cached = rel_node.get_float_optional("cached_sum")
+        # cached_sum 常滞后于 UI；有 opinion_cache 时由 _apply_opinion_cache 覆盖
+        opinion = float(cached) if cached is not None else (opinion_sum if has_opinion_mod else 0.0)
+        truce_raw = rel_node.get("truce")
+        truce = False
+        if isinstance(truce_raw, bool):
+            truce = truce_raw
+        elif truce_raw is not None:
+            truce = str(truce_raw).strip('"').lower() in {"yes", "true", "1"}
+        attitude = (rel_node.get_str("attitude") or "").strip().strip('"')
+        if ae <= 0 and cached is None and not has_opinion_mod and not truce:
+            # 仅 attitude / recalc 的空壳关系可跳过
+            if not attitude and rel_node.get("recalc_attitude") is None:
+                continue
+        out[str(other).upper()] = CountryRelation(
+            tag=str(other).upper(),
+            ae=ae,
+            opinion=opinion,
+            truce=truce,
+            attitude=attitude,
+        )
+    return out
+
+
+def _parse_opinion_cache_list(node: ObjectNode) -> list[float] | None:
+    """opinion_cache={ 0 25 -10 ... } → 与 countries 键序对齐的好感数组。"""
+    raw = node.get_list("opinion_cache")
+    if not raw:
+        return None
+    out: list[float] = []
+    for x in raw:
+        try:
+            out.append(float(x))
+        except (TypeError, ValueError):
+            out.append(0.0)
+    return out if out else None
+
+
+def _apply_opinion_cache(
+    countries: dict[str, CountryState],
+    countries_node: ObjectNode | None,
+    tag_order: list[str],
+) -> None:
+    """用 opinion_cache 覆盖关系好感（与游戏外交界面一致；cached_sum 常过时）。"""
+    if countries_node is None or not tag_order:
+        return
+    tag_index = {str(t): i for i, t in enumerate(tag_order)}
+    for tag, c in countries.items():
+        node = countries_node.values.get(tag)
+        if not isinstance(node, ObjectNode):
+            continue
+        cache = _parse_opinion_cache_list(node)
+        if cache is None:
+            continue
+        for other, idx in tag_index.items():
+            if other == tag or idx >= len(cache):
+                continue
+            if not (len(other) == 3 and other.isalnum()):
+                continue
+            if other not in countries and other not in (c.relations or {}):
+                continue
+            val = float(cache[idx])
+            c.opinion_of[other] = val
+            rel = (c.relations or {}).get(other)
+            if rel is not None:
+                rel.opinion = val
+
+
+def _fill_ae_maps_from_relations(countries: dict[str, CountryState]) -> None:
+    """他国 active_relations[player].ae → player.aggressive_expansion[他国]。"""
+    for owner, c in countries.items():
+        for target, rel in (c.relations or {}).items():
+            if rel.ae <= 0:
+                continue
+            victim = countries.get(target)
+            if victim is None:
+                continue
+            prev = float(victim.aggressive_expansion.get(owner, 0.0) or 0.0)
+            if rel.ae > prev:
+                victim.aggressive_expansion[owner] = float(rel.ae)
 
 
 def _extract_completed_missions(node: ObjectNode) -> list[str]:
@@ -493,38 +682,54 @@ def _candidate_military_keys(node: ObjectNode) -> list[tuple[str, str]]:
 
 
 def _count_units(node: ObjectNode, key: str) -> float:
+    """统计 army/navy 下的团/舰数量。
+
+    真档多为重复键 army=/navy= 块，内含多个 regiment=/ship=。
+    切勿把 all_objects 与 get_list 叠加，也切勿 get_object + all_objects 双计。
+    """
     total = 0.0
-    for army in node.all_objects(key) + [
-        x for x in node.get_list(key) if isinstance(x, ObjectNode)
-    ]:
+    for army in node.all_objects(key):
         if not isinstance(army, ObjectNode):
             continue
-        for unit_key in ("infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"):
-            total += army.get_float(unit_key)
-        reg = army.get_object("regiment") or army.get_object("ship")
-        if reg is not None:
-            total += 1
-        # 多个 regiment
-        for _ in army.all_objects("regiment") + army.all_objects("ship"):
-            total += 1
+        flat = 0.0
+        for unit_key in (
+            "infantry",
+            "cavalry",
+            "artillery",
+            "heavy_ship",
+            "light_ship",
+            "galley",
+            "transport",
+        ):
+            flat += army.get_float(unit_key)
+        if flat > 0:
+            total += flat
+            continue
+        total += float(len(army.all_objects("regiment")) + len(army.all_objects("ship")))
     return total
 
 
 def _extract_province_names(root: ObjectNode) -> dict[int, str]:
-    """从 provinces 块抽取 id → 名称（若存档带 name 字段）。"""
+    """从 provinces 块抽取 id → 名称（若存档带 name 字段）。
+
+    Clausewitz 真档省份键常为负数（``-54``）；统一存为正 id。
+    中文私有字体编码的 name 视为乱码，跳过（留给 localisation PROV{{id}}）。
+    """
+    from eu4_chronicle.localisation import looks_mojibake
+
     names: dict[int, str] = {}
     provinces = root.get_object("provinces")
     if provinces is None:
         return names
     for key, node in provinces.values.items():
         try:
-            pid = int(key)
+            pid = abs(int(key))
         except (TypeError, ValueError):
             continue
         if not isinstance(node, ObjectNode):
             continue
         pname = node.get_str("name") or node.get_str("province_name")
-        if pname:
+        if pname and not looks_mojibake(pname):
             names[pid] = pname
     return names
 
@@ -668,8 +873,19 @@ def _parse_one_war(
         life_a, life_d = _sides_from_history(history, lifetime=True)
         if life_a or life_d:
             attackers, defenders = life_a, life_d
+    elif not attackers or not defenders:
+        # active_war 常一侧被 rem 清空，另一侧仍残留；用 history 当前集合补缺
+        hist_a, hist_d = _sides_from_history(history, lifetime=False)
+        if not attackers and hist_a:
+            attackers = hist_a
+        if not defenders and hist_d:
+            defenders = hist_d
 
     participants = _parse_participants(war, attackers, defenders)
+    # participants.side 比顶层 attackers/defenders 更完整（真档常见）
+    attackers, defenders = _merge_sides_from_participants(
+        attackers, defenders, participants
+    )
     goal = _parse_war_goal(war, history)
     battles = _parse_battles(history)
     # 已结束战争的「当前占领」对 curr 地图无意义，勿写入 0 处干扰文案
@@ -682,6 +898,7 @@ def _parse_one_war(
         ended_date = ended_date.strip().strip('"')
 
     state = WarState(
+        # 乱码私有字体名仍保留作 Diff 身份键；可读化时再走模板兜底
         name=war.get_str("name") or war.get_str("war_name") or "未命名战争",
         attackers=attackers,
         defenders=defenders,
@@ -988,6 +1205,37 @@ def _iter_history_blocks(history: ObjectNode | None) -> list[tuple[str, ObjectNo
             if isinstance(val, ObjectNode):
                 items.append((key, val))
     return items
+
+
+def _merge_sides_from_participants(
+    attackers: list[str],
+    defenders: list[str],
+    participants: list,
+) -> tuple[list[str], list[str]]:
+    """用 participants.side 补全/校正攻守列表，保留既有顺序。"""
+    att = [t for t in attackers if t]
+    defe = [t for t in defenders if t]
+    att_set, def_set = set(att), set(defe)
+    for p in participants:
+        tag = getattr(p, "tag", None) or ""
+        side = getattr(p, "side", None)
+        if not tag:
+            continue
+        if side == "attackers":
+            if tag not in att_set:
+                att.append(tag)
+                att_set.add(tag)
+            if tag in def_set:
+                defe = [x for x in defe if x != tag]
+                def_set.discard(tag)
+        elif side == "defenders":
+            if tag not in def_set:
+                defe.append(tag)
+                def_set.add(tag)
+            if tag in att_set:
+                att = [x for x in att if x != tag]
+                att_set.discard(tag)
+    return att, defe
 
 
 def _sides_from_history(

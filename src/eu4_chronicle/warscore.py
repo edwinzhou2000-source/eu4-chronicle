@@ -14,9 +14,18 @@ ADVANTAGE_SCORE = 20.0
 CONTESTED_ABS = 15.0
 
 
-def format_ticking_bonus(score: float) -> str:
-    """成稿用：战争目标达成程度 bonus；只写「战争目标加分 ±N」，不加范围注解。"""
-    return f"战争目标加分 {score:+.0f}"
+def format_ticking_bonus(score: float) -> str | None:
+    """成稿用：进行中战争的战争目标加分；只写「战争目标加分 ±N」。
+
+    缺省或 ≈0 返回 None（结束战争常不保留此值，禁止写成 ±0 / 未及全功）。
+    """
+    try:
+        v = float(score)
+    except (TypeError, ValueError):
+        return None
+    if abs(v) < 0.5:
+        return None
+    return f"战争目标加分 {v:+.0f}"
 
 
 @dataclass
@@ -197,12 +206,14 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             standing.occupied_provinces = detail["occupied_provinces"]
         if detail.get("major_battles"):
             standing.major_battles = list(detail["major_battles"])
-        # 已结束战争：战争目标加分/实时 ticking 易误导，不写入
+        # 已结束战争：战争目标加分/实时 ticking 常不保留，不写入（禁止脑补 ±0）
         if not standing.ended and detail.get("player_ticking_warscore") is not None:
             try:
-                standing.ticking_score = float(detail["player_ticking_warscore"])
+                tick = float(detail["player_ticking_warscore"])
             except (TypeError, ValueError):
-                pass
+                tick = None
+            if tick is not None and abs(tick) >= 0.5:
+                standing.ticking_score = tick
 
         # previous_war 归档分与 outcome 矛盾时 detail.score_unreliable=True，勿写入
         if score is not None and not detail.get("score_unreliable"):
@@ -238,10 +249,17 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
 
 def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list[str]:
     """供 brief / 军师遵守的战分事实行。"""
+    naming_rule = (
+        "战争标题硬性：必须按 brief 的攻方 vs 守方书写；"
+        "**禁止**把与玩家同侧的国家写成「对 X 之役 / 对英格兰等国」；"
+        "战名译名含某国但该国与玩家同阵营时，不得改成对战该国；"
+        "自定义 TAG（EN1/EN3/NE8 等）≠英格兰 ENG，勿臆译成英格兰。"
+    )
     if not assessment.standings:
         return [
             "本区间无玩家参与的可稽战争（active_war / previous_war 均未检出玩家战事）。"
-            "战局要点仅用一两句说明即可；禁止用陆军编制、军科、人力等和平期数据充数。"
+            "战局要点仅用一两句说明即可；禁止用陆军编制、军科、人力等和平期数据充数。",
+            naming_rule,
         ]
     lines: list[str] = []
     for s in assessment.standings:
@@ -280,10 +298,15 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
                 f"{tier_phrase(s.tier, score=s.player_score)}"
                 + (f"；{side}" if side else "")
             )
-            if s.ticking_score is not None:
+            tick_line = (
+                format_ticking_bonus(s.ticking_score)
+                if s.ticking_score is not None
+                else None
+            )
+            if tick_line:
                 lines.append(
-                    f"「{wlabel}」{format_ticking_bonus(s.ticking_score)}；"
-                    "系战争目标达成程度 bonus，主展示仍用总战分"
+                    f"「{wlabel}」{tick_line}；"
+                    "仅进行中战争可写；主展示仍用总战分；禁止因未到 ±25/100 贬低总战分"
                 )
         else:
             status = "本区间内已结束" if s.ended else "进行中"
@@ -294,12 +317,16 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
                 f"须写战争名与参战结构（{side or '参战方见 Diff'}）{battle_bit}；"
                 "禁止假称「无可稽战争」；禁止堆砌占领数=0、原始 CB 键、多场战役损兵明细、编制充数"
             )
+    lines.append(naming_rule)
     lines.append(
-        "硬性：进行中战争主展示总战分；战争目标加分仅作目标达成程度附注；"
+        "硬性：进行中战争主展示总战分；战争目标加分仅当 brief 给出非零值时附注一句；"
+        "缺省/结束战争**禁止**写「战争目标加分 ±0」或「目标达成有限/未及全功」。"
+        "总战分约 +45 已是很高的和约分；+100 才近满分/全吞——不得因未到 100 贬低取胜。"
         "战分显著为正（≥50）须写优势在握/基本打赢；"
         "仅在 |总战分| 较低（胶着）时才写胜负未定；"
         "禁止无战分依据的「尘埃未定」。"
         "已结束战争（previous_war）：胜负以 outcome 为准（2=攻方胜 3=守方胜 1=平局）；"
+        "**不要**写战争目标加分（档内常不保留）；"
         "归档 last_warscore 与 outcome 符号矛盾时已标不可靠——**禁止引用**；"
         "仅 brief 给出的可靠战分可写。有 war_* 时必须点名战争，禁止「无可稽战争」套话。"
         "硬性：war_ended = 本区间（两档之间）内发生并打完的战争；"
@@ -332,6 +359,24 @@ BANNED_EMPTY_PHRASES = (
     "（约-25～+25）",
     "约±25",
     "约 ±25",
+    "旧约既解",
+    "不再倚仗",
+    "这一外援",
+    "盟约撕裂",
+    "守住这份战果",
+    "守住战果",
+    "接下来便是",
+    "巩固战果",
+    "巩固版图",
+    "据 Diff 巩固",
+    "当务之急",
+    "可征之丁",
+    "现存之兵",
+    "尚待休养",
+    "休养生息",
+    "兵甲稍充",
+    "元气未复",
+    "丁口",
 )
 
 

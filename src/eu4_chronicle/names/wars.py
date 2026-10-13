@@ -100,6 +100,19 @@ def _pair_side_zh(token: str) -> str:
     return t
 
 
+def _is_garbled_war_name(name: str) -> bool:
+    """私有字体 / 控制字符乱码（自定义国战名常见）→ 走攻守模板。"""
+    raw = (name or "").strip()
+    if not raw or raw in {"未名", "未命名战争"}:
+        return True
+    bad = 0
+    for ch in raw:
+        o = ord(ch)
+        if o < 32 or ch == "\ufffd" or 0xE000 <= o <= 0xF8FF:
+            bad += 1
+    return bad >= max(2, (len(raw) + 2) // 3)
+
+
 def translate_war_name(
     name: str | None,
     *,
@@ -109,7 +122,7 @@ def translate_war_name(
 ) -> str:
     """把英文战争名译成中文；译不出则用「进攻方征服/战争·目标」模板。"""
     raw = (name or "").strip()
-    if not raw or raw in {"未名", "未命名战争"}:
+    if not raw or raw in {"未名", "未命名战争"} or _is_garbled_war_name(raw):
         return _template_fallback(attackers, defenders, country_label, place=None)
 
     if not _looks_mostly_latin(raw):

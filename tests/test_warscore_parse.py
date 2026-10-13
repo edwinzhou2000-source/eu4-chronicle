@@ -503,9 +503,11 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
     assert "不作胶着依据" not in md
     assert "非总战分" not in md
     assert "目标 ticking" not in md
-    assert narrative.count("战争目标加分") == 1
+    assert narrative.count("战争目标加分") == 0
     assert war.count("战争目标加分") == 1
+    assert md.count("战争目标加分") == 1
     assert "下一页按战分" not in md
+    assert "详见战局" in narrative
     assert "基本打赢（战分 +64）" not in narrative
     assert "+17" in war
     assert "夺取宣称" in war
@@ -521,6 +523,8 @@ def test_format_ticking_bonus_copy():
 
     assert format_ticking_bonus(16.8) == "战争目标加分 +17"
     assert format_ticking_bonus(-12.4) == "战争目标加分 -12"
+    assert format_ticking_bonus(0.0) is None
+    assert format_ticking_bonus(0.2) is None
     assert "约" not in format_ticking_bonus(16.8)
     assert "-25" not in format_ticking_bonus(16.8)
     assert "非总战分" not in format_ticking_bonus(1.0)

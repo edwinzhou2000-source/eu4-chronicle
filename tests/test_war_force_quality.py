@@ -222,12 +222,13 @@ def test_mock_with_teu_pol_force_states_numbers():
 
     assert "18" in blob and "28" in blob  # 陆军
     assert "4" in blob and "3" in blob  # 军科
-    # 双方都有纪律/士气 → mock 与 brief **必须**写入，不得省略
-    assert "纪律" in narrative or "纪律" in war
-    assert "士气" in narrative or "士气" in war
+    # 纪律/士气仅战局；叙事不写交战质量对比
+    assert "纪律" not in narrative
+    assert "士气" not in narrative
     assert "纪律" in war and "士气" in war
     assert "1.05" in blob and "3.2" in blob
     assert "必须写入" in brief or "不得省略" in brief
+    assert "战局" in brief  # brief 要求写入战局而非叙事
     assert "轻代差" in blob or "领先一级" in blob or "领先 1" in blob
     # 成稿正文勿写传统/职业度（brief 禁词说明可提及）
     for text in (narrative, war, editor):
@@ -236,7 +237,9 @@ def test_mock_with_teu_pol_force_states_numbers():
 
 
 def test_prompts_forbid_force_compare_without_numbers():
-    for sys in (HISTORIAN_SYSTEM, STRATEGIST_SYSTEM, EDITOR_SYSTEM):
+    # 交战军力归军师/主编；史官禁止展开对比
+    assert "禁止在叙事展开" in HISTORIAN_SYSTEM or "战局" in HISTORIAN_SYSTEM
+    for sys in (STRATEGIST_SYSTEM, EDITOR_SYSTEM):
         assert "同维" in sys or "体量" in sys or "军力" in sys
         assert "传统" in sys or "职业度" in sys
         assert "不得省略" in sys or "必须写入" in sys
@@ -244,6 +247,7 @@ def test_prompts_forbid_force_compare_without_numbers():
 
     assert "必须写入" in FORCE_RULES_BLOCK
     assert "不得省略" in FORCE_RULES_BLOCK
+    assert "勿写入叙事" in FORCE_RULES_BLOCK
 
 
 def test_parse_discipline_from_nested_modifier_bonus():

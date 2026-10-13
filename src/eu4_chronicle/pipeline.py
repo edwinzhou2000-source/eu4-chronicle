@@ -16,6 +16,7 @@ from eu4_chronicle.agents import (
 from eu4_chronicle.config import Settings, get_settings
 from eu4_chronicle.diff import diff_states
 from eu4_chronicle.filter import filter_diff
+from eu4_chronicle.localisation import get_game_localisation
 from eu4_chronicle.models import ChronicleReport, DiffResult, GameState
 from eu4_chronicle.names import NameResolver
 from eu4_chronicle.parser import parse_save
@@ -56,14 +57,23 @@ async def analyze_states(
             "filtered": not include_global,
         }
     )
-    names = NameResolver.from_states(prev, curr)
+    loc = get_game_localisation(
+        str(settings.game_dir) if settings.game_dir else None,
+        str(settings.paradox_docs) if settings.paradox_docs else None,
+    )
+    names = NameResolver.from_states(prev, curr, loc=loc)
     # 任务书小节已下线：不过本地化 enrich，过滤后也不再喂给纪事官
     readable = names.rewrite_diff(filtered)
     player = readable.player
     ae_snapshot: dict[str, float] = {}
     if player and player in curr.countries:
         ae_snapshot = dict(curr.countries[player].aggressive_expansion or {})
-    ae = assess_player_ae(readable, ae_snapshot=ae_snapshot, country_label=names.country)
+    ae = assess_player_ae(
+        readable,
+        ae_snapshot=ae_snapshot,
+        country_label=names.country,
+        curr=curr,
+    )
     return await synthesize(readable, settings=settings, names=names, ae=ae)
 
 

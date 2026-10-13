@@ -204,7 +204,9 @@ def test_mock_teu4_pol3_must_state_lead_not_parity():
 
 
 def test_prompts_forbid_tech_compare_without_numbers():
-    for sys in (HISTORIAN_SYSTEM, STRATEGIST_SYSTEM, EDITOR_SYSTEM):
+    # 军科对比归战局/主编；史官只禁止展开，不写对比细则
+    assert "战局" in HISTORIAN_SYSTEM or "禁止在叙事展开" in HISTORIAN_SYSTEM
+    for sys in (STRATEGIST_SYSTEM, EDITOR_SYSTEM):
         assert "代差" in sys or "军科" in sys
         assert "双方" in sys or "无双方" in sys or "双方军科" in sys
 

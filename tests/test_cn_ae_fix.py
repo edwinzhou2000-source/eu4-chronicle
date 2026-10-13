@@ -126,7 +126,8 @@ def test_ae_no_change_mock_has_no_scare_phrases():
     assert "苛刻和约" not in diplo
 
 
-def test_ae_high_warns_coalition():
+def test_ae_high_without_three_eligible_not_warn_coalition():
+    """单国 AE≥50 不等于可组网；需至少 3 国 AE≥50+好感<0+无停战。"""
     names = NameResolver()
     diff = _teu_diff(
         DiffEvent(
@@ -138,13 +139,137 @@ def test_ae_high_warns_coalition():
         )
     )
     ae = assess_player_ae(diff, country_label=names.country)
-    assert ae.warn_coalition
     assert ae.level == "high"
+    assert ae.max_to >= 50
+    assert not ae.warn_coalition
     diplo = _mock_diplo_section(diff, names, ae, heading=False)
     assert "50" in diplo
     assert "包围网" in diplo
-    assert ae.max_to >= 50
-    # 高 AE 可点门槛，但勿用旧机制科普句式
+    assert "尚未凑齐" in diplo or "可入网" in diplo
+    assert not contains_mechanism_fluff(diplo)
+
+
+def test_ae_guidance_names_truce_blocked_exactly():
+    """停战未能入网须写准确国数与国名，禁止「约 N 国」。"""
+    from eu4_chronicle.models import CountryRelation, CountryState, GameState
+
+    names = NameResolver()
+    diff = _teu_diff()
+
+    def _truce(ae: float) -> CountryRelation:
+        return CountryRelation(
+            tag="TEU",
+            ae=ae,
+            opinion=-30,
+            truce=True,
+            attitude="attitude_outraged",
+        )
+
+    curr = GameState(
+        date="1454.1.1",
+        player="TEU",
+        countries={
+            "TEU": CountryState(tag="TEU", owned_provinces=[1]),
+            "HSA": CountryState(
+                tag="HSA", owned_provinces=[45], relations={"TEU": _truce(70)}
+            ),
+            "DAN": CountryState(
+                tag="DAN", owned_provinces=[1], relations={"TEU": _truce(65)}
+            ),
+            "STE": CountryState(
+                tag="STE",
+                owned_provinces=[48],
+                relations={
+                    "TEU": CountryRelation(
+                        tag="TEU",
+                        ae=60,
+                        opinion=10,
+                        truce=False,
+                        attitude="attitude_neutral",
+                    )
+                },
+            ),
+        },
+    )
+    ae = assess_player_ae(diff, country_label=names.country, curr=curr)
+    lines = ae_guidance_lines(
+        ae,
+        player_label=names.country("TEU"),
+        for_user=True,
+        country_label=names.country,
+    )
+    blob = "".join(lines)
+    assert "停战未能入网 2 国" in blob
+    assert "约 2 国" not in blob
+    assert "约" not in blob.split("停战")[1][:20] if "停战" in blob else True
+    assert names.country("HSA") in blob
+    assert names.country("DAN") in blob
+    diplo = _mock_diplo_section(diff, names, ae, heading=False)
+    assert "停战未能入网 2 国" in diplo
+    assert "约 2 国因停战" not in diplo
+
+
+def test_ae_coalition_warns_when_three_outraged_eligible():
+    from eu4_chronicle.models import CountryRelation, CountryState, GameState
+
+    names = NameResolver()
+    diff = _teu_diff()
+
+    def _live(tag: str, **kwargs) -> CountryState:
+        return CountryState(tag=tag, owned_provinces=[1], **kwargs)
+
+    def _outraged(ae: float, opinion: float = -20, truce: bool = False) -> CountryRelation:
+        return CountryRelation(
+            tag="TEU",
+            ae=ae,
+            opinion=opinion,
+            truce=truce,
+            attitude="attitude_outraged",
+        )
+
+    curr = GameState(
+        date="1454.1.1",
+        player="TEU",
+        countries={
+            "TEU": _live("TEU", name="Teutonic Order"),
+            # 3 国可入网即达组网门槛；第 4 国一并列出验证 eligible 集合
+            "POL": _live("POL", relations={"TEU": _outraged(60)}),
+            "LIT": _live("LIT", relations={"TEU": _outraged(55)}),
+            "MOS": _live("MOS", relations={"TEU": _outraged(52)}),
+            "HSA": _live(
+                "HSA",
+                relations={
+                    "TEU": CountryRelation(
+                        tag="TEU",
+                        ae=70,
+                        opinion=-40,
+                        truce=True,
+                        attitude="attitude_outraged",
+                    )
+                },
+            ),
+            "STE": _live(
+                "STE",
+                relations={
+                    "TEU": CountryRelation(
+                        tag="TEU",
+                        ae=63,
+                        opinion=-19,
+                        truce=False,
+                        attitude="attitude_friendly",  # 友好态度：不入网
+                    )
+                },
+            ),
+        },
+    )
+    ae = assess_player_ae(diff, country_label=names.country, curr=curr)
+    assert ae.warn_coalition
+    assert ae.level == "high"
+    assert set(ae.coalition_eligible) == {"POL", "LIT", "MOS"}
+    assert "HSA" in ae.coalition_truce_blocked
+    assert "STE" in ae.coalition_blocked
+    diplo = _mock_diplo_section(diff, names, ae, heading=False)
+    assert "包围网风险高" in diplo
     assert not contains_mechanism_fluff(diplo)
 
 

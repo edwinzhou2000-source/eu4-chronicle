@@ -153,7 +153,7 @@ previous_war={
             DiffEvent(
                 kind="manpower_changed",
                 tag="TEU",
-                summary="当前人力 15.2→17.8（千人）",
+                summary="当前人力 15.2k→17.8k",
                 detail={"from": 15.2, "to": 17.8, "max_from": 20.0, "max_to": 20.0},
             ),
         ]
@@ -168,9 +168,12 @@ previous_war={
 
     narrative = _mock_narrative_paragraph(filtered, names, ae)
     assert "仍在进行" not in narrative
-    assert "和约取胜" in narrative
+    assert "详见战局" in narrative
+    assert "和约取胜" not in narrative
     assert "交战占领省份约 0" not in narrative
     assert "战争目标加分" not in narrative
+    assert "±0" not in narrative
+    assert "未及全功" not in narrative
     assert "损 " not in narrative
     assert "战分落后" not in narrative
 
@@ -179,6 +182,8 @@ previous_war={
     assert "本区间内打完" in war
     assert "本区间无进行中战争" not in war
     assert "本区间无战争" not in war
+    assert "战争目标加分" not in war
+    assert "未及全功" not in war
     assert "宜收缩战线或求和" not in war
     assert "陆军约" not in war
     assert "15.2" not in war
@@ -192,10 +197,17 @@ previous_war={
     assert "本区间内打完" in md
     assert "宜收缩战线或求和" not in md
     assert "战分落后" not in md
+    assert "战争目标加分" not in md
 
     guidance = "\n".join(war_guidance_lines(assessment))
     assert "本区间（两档之间）内发生并打完" in guidance
     assert "禁止写成「本区间无进行中战争" in guidance
+    assert "±0" in guidance
+    assert "未及全功" in guidance
+    # 已结束场次行本身不应夹带「战争目标加分」
+    for line in guidance.splitlines():
+        if line.startswith("「") and "已结束" in line:
+            assert "战争目标加分" not in line
 
 
 def test_ended_wars_tech_changed_not_contradict_war_section():

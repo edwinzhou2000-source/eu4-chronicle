@@ -128,7 +128,8 @@ def test_previous_only_unreliable_negative_omitted():
     narrative = _mock_narrative_paragraph(filtered, names, ae)
     war = _mock_war_section(filtered, names, ae, heading=False)
     md = _mock_editor(filtered, names, ae)
-    assert "和约取胜" in narrative
+    assert "详见战局" in narrative
+    assert "和约取胜" not in narrative
     assert "和约取胜" in war
     assert "-24" not in narrative
     assert "-24" not in war

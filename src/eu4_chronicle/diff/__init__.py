@@ -202,12 +202,18 @@ def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
     core_gained = sorted(set(b.cores) - set(a.cores))
     core_lost = sorted(set(a.cores) - set(b.cores))
     if core_gained:
+        # 仍写入 raw Diff；默认玩家过滤会丢掉（战报只写 province_gained）
+        owned_prev = set(a.owned_provinces)
         events.append(
             DiffEvent(
                 kind="core_gained",
                 tag=tag,
                 summary=f"{tag} 新增核心 {core_gained}",
-                detail={"cores": core_gained},
+                detail={
+                    "cores": core_gained,
+                    "coring_owned": [p for p in core_gained if p in owned_prev],
+                    "cores_elsewhere": [p for p in core_gained if p not in owned_prev],
+                },
             )
         )
     if core_lost:
@@ -320,8 +326,8 @@ def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
                 kind="manpower_changed",
                 tag=tag,
                 summary=(
-                    f"{tag} 当前人力 {a.manpower:.1f}→{b.manpower:.1f}（千人）；"
-                    f"人力上限 {a.max_manpower:.1f}→{b.max_manpower:.1f}（千人）"
+                    f"{tag} 当前人力 {a.manpower:.1f}k→{b.manpower:.1f}k；"
+                    f"人力上限 {a.max_manpower:.1f}k→{b.max_manpower:.1f}k"
                 ),
                 detail={
                     "from": a.manpower,

@@ -14,6 +14,19 @@ class Monarch(BaseModel):
     mil: int = 0
 
 
+class CountryRelation(BaseModel):
+    """本国 active_relations 中对另一 TAG 的视角（AE / 总好感 / 停战 / 态度）。"""
+
+    tag: str
+    # 本国对该 TAG 的 AE（来自 opinion modifier=aggressive_expansion 的 |current_opinion|）
+    ae: float = 0.0
+    # 优先 opinion_cache（与 UI 一致）；否则 cached_sum / opinion 修正合计
+    opinion: float = 0.0
+    truce: bool = False
+    # 如 attitude_outraged / attitude_rivalry / attitude_friendly
+    attitude: str = ""
+
+
 class CountryState(BaseModel):
     tag: str
     name: str = ""
@@ -41,9 +54,16 @@ class CountryState(BaseModel):
     cores: list[int] = Field(default_factory=list)
     owned_provinces: list[int] = Field(default_factory=list)
     opinion_of: dict[str, float] = Field(default_factory=dict)
+    # other → 该国对本国的 AE（填充自各国 active_relations）
     aggressive_expansion: dict[str, float] = Field(default_factory=dict)
+    # 本国对其它 TAG 的关系（含对本国视角的镜像源）
+    relations: dict[str, CountryRelation] = Field(default_factory=dict)
     # 任务树：存档 completed_missions 列表（仅 ID；正文靠游戏/Mod 本地化）
     completed_missions: list[str] = Field(default_factory=list)
+    # 自定义/成型国：中文 Mod 名常乱码，用政府名里的原 TAG / 换皮来源兜底
+    government_name: str = ""
+    changed_tag_from: str = ""
+    previous_country_tags: list[str] = Field(default_factory=list)
 
 
 class WarParticipant(BaseModel):

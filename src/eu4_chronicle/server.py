@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from eu4_chronicle.agents.llm import LLMError
 from eu4_chronicle.config import format_save_dir, get_settings
 from eu4_chronicle.pipeline import analyze_saves
+from eu4_chronicle.saves import list_eu4_files, pick_default_saves
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
@@ -78,17 +79,14 @@ def list_saves() -> dict:
                 "（WSL 示例见 README），或确认 Windows 存档已挂到 /mnt/c/Users/...。"
             ),
         )
-    files = []
-    for f in sorted(directory.glob("*.eu4")):
-        files.append(
-            {
-                "name": f.name,
-                "path": str(f),
-                "size": f.stat().st_size,
-                "mtime": f.stat().st_mtime,
-            }
-        )
-    return {"save_dir": save_dir_text, "files": files}
+    files = list_eu4_files(directory)
+    default_prev, default_curr = pick_default_saves(files)
+    return {
+        "save_dir": save_dir_text,
+        "files": files,
+        "default_prev": default_prev,
+        "default_curr": default_curr,
+    }
 
 
 @app.post("/analyze")

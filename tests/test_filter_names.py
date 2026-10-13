@@ -66,6 +66,8 @@ def test_name_resolver_prefers_chinese_and_provinces():
     assert names.province(151) in {"君士坦丁堡", "Constantinople"}
     # 无映射时兜底
     assert names.province(99999) == "省份99999"
+    # 负 id（真档 Clausewitz 键）与正 id 等价
+    assert names.province(-151) == names.province(151)
 
     raw = diff_states(prev, curr)
     filtered = filter_diff(raw, prev=prev, curr=curr, include_global=False)
@@ -74,6 +76,90 @@ def test_name_resolver_prefers_chinese_and_provinces():
     assert gained
     assert "317" not in gained[0].summary or "许达文迪加尔" in gained[0].summary or "Hudavendigar" in gained[0].summary
     assert "拜占庭" in gained[0].summary
+
+
+def test_province_skips_garbled_and_uses_loc():
+    """乱码存档名跳过；localisation PROV{{id}} + PLACE_EN_ZH 出中文。"""
+    from eu4_chronicle.localisation import GameLocalisation
+
+    loc = GameLocalisation(entries={"PROV54": "Stade", "PROV55": "Oldenburg"})
+    names = NameResolver(
+        province_names={54: "\x11Ëe\x10TX\x12·V"},
+        loc=loc,
+    )
+    assert names.province(54) == "施塔德"
+    assert names.province(-55) == "奥尔登堡"
+    # 无 loc、无中文映射 → 兜底
+    assert NameResolver().province(88888) == "省份88888"
+
+
+def test_country_uses_loc_and_formable_hints():
+    """存档 name=TAG 时：localisation / 成型政府名 → 中文全名，勿留裸 TAG。"""
+    from eu4_chronicle.localisation import GameLocalisation
+    from eu4_chronicle.models import CountryState, GameState
+
+    loc = GameLocalisation(entries={"WES": "Westphalia"})
+    state = GameState(
+        date="1460.6.10",
+        player="XX9",
+        countries={
+            # 未进 COUNTRY_ZH 的自定义 TAG：靠 government_name 里的 NED
+            "XX9": CountryState(
+                tag="XX9",
+                name="XX9",
+                government_name="NYDD_NED_unite_province_gov_2",
+                changed_tag_from="HOL",
+                previous_country_tags=["HOL"],
+            ),
+            "WES": CountryState(tag="WES", name="WES"),
+        },
+    )
+    names = NameResolver.from_states(state, loc=loc)
+    assert names.country("WES") == "威斯特伐利亚"
+    assert names.country("XX9") == "尼德兰"
+    assert names.country("NE8") == "尼德兰"
+
+
+def test_core_gained_dropped_from_player_report():
+    """战报只保留取得省份；造核/新增核心不进默认 Diff。"""
+    from eu4_chronicle.parser import parse_save_text
+
+    prev = parse_save_text(
+        """
+        date="1457.4.3"
+        player="NED"
+        countries={
+          NED={
+            name="Netherlands"
+            owned_provinces={ 12 15 }
+            core_provinces={ }
+          }
+        }
+        """
+    )
+    curr = parse_save_text(
+        """
+        date="1460.6.10"
+        player="NED"
+        countries={
+          NED={
+            name="Netherlands"
+            owned_provinces={ 12 15 54 }
+            core_provinces={ 12 15 }
+          }
+        }
+        """
+    )
+    raw = diff_states(prev, curr)
+    assert any(e.kind == "core_gained" for e in raw.events)
+    filtered = filter_diff(raw, prev=prev, curr=curr, include_global=False)
+    assert not any(e.kind == "core_gained" for e in filtered.events)
+    gained = [e for e in filtered.events if e.kind == "province_gained" and e.tag == "NED"]
+    assert gained and gained[0].detail["provinces"] == [54]
+    names = NameResolver.from_states(prev, curr)
+    readable = names.rewrite_diff(filtered)
+    prov = next(e for e in readable.events if e.kind == "province_gained")
+    assert "取得" in prov.summary
 
 
 def test_filter_player_events_unit():
@@ -103,3 +189,35 @@ def test_filter_player_events_unit():
     assert ("alliance_broken", "TEU") in kinds_tags
     assert ("war_started", "ITO") not in kinds_tags
     assert ("province_gained", "ITO") not in kinds_tags
+
+
+def test_filter_drops_war_with_only_stale_participants():
+    """仅 participants 含玩家、攻守皆无 → 不当玩家战争（脏 previous_war）。"""
+    events = [
+        DiffEvent(
+            kind="war_ended",
+            tag="ENG",
+            summary="幽灵战争",
+            detail={
+                "name": "Phantom English War",
+                "attackers": ["ENG", "SCO", "FRA"],
+                "defenders": ["BUR"],
+                "participants": ["ENG", "SCO", "FRA", "BUR", "NED"],
+            },
+        ),
+        DiffEvent(
+            kind="war_score_changed",
+            tag="NED",
+            summary="幽灵战分",
+            detail={
+                "name": "Phantom English War",
+                "attackers": ["ENG"],
+                "defenders": ["BUR"],
+                "participants": ["NED", "ENG"],
+                "from": 90,
+                "to": 100,
+            },
+        ),
+    ]
+    kept = filter_player_events(events, player="NED", sphere={"NED", "ENG"})
+    assert not any(e.kind in {"war_ended", "war_score_changed"} for e in kept)

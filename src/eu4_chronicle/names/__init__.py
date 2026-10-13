@@ -1,10 +1,16 @@
-"""TAG / 省份可读化：存档字段优先，其次内置中文映射，最后「国名(TAG)」兜底。"""
+"""TAG / 省份可读化：内置中文 → 可读存档名 → 游戏 localisation → 成型提示 → 兜底。"""
 
 from __future__ import annotations
 
-from eu4_chronicle.models import DiffEvent, DiffResult, GameState
-from eu4_chronicle.names.catalog import COUNTRY_ZH, PROVINCE_ZH
+import re
+
+from eu4_chronicle.localisation import GameLocalisation, looks_mojibake
+from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState
+from eu4_chronicle.names.catalog import COUNTRY_EN_ZH, COUNTRY_ZH, PLACE_EN_ZH, PROVINCE_ZH
 from eu4_chronicle.names.wars import translate_war_name
+
+# government_name 如 NYDD_NED_unite_province_gov_2 → 抽出 NED
+_GOV_TAG_RE = re.compile(r"(?:^|_)([A-Z]{3})(?:_|$)")
 
 
 def _fmt_quality_num(v: float | int) -> str:
@@ -27,10 +33,10 @@ def _fmt_force_side_zh(label: str, snap: dict) -> str:
         mx = snap.get("max_manpower")
         if mx is not None:
             bits.append(
-                f"当前人力{float(snap['manpower']):.1f}/上限{float(mx):.1f}（千人）"
+                f"当前人力{float(snap['manpower']):.1f}k/上限{float(mx):.1f}k"
             )
         else:
-            bits.append(f"当前人力{float(snap['manpower']):.1f}（千人）")
+            bits.append(f"当前人力{float(snap['manpower']):.1f}k")
     if snap.get("discipline") is not None:
         bits.append(f"纪律{_fmt_quality_num(snap['discipline'])}")
     if snap.get("land_morale") is not None:
@@ -41,6 +47,47 @@ def _fmt_force_side_zh(label: str, snap: dict) -> str:
     return " ".join(bits)
 
 
+def _place_zh(name: str) -> str:
+    """英文（或可读）地名尽量换成中文。"""
+    if name in PLACE_EN_ZH:
+        return PLACE_EN_ZH[name]
+    lower = name.lower()
+    for en, zh in PLACE_EN_ZH.items():
+        if en.lower() == lower:
+            return zh
+    return name
+
+
+def _country_zh(name: str) -> str:
+    """英文国名尽量换成中文。"""
+    if name in COUNTRY_EN_ZH:
+        return COUNTRY_EN_ZH[name]
+    lower = name.lower()
+    for en, zh in COUNTRY_EN_ZH.items():
+        if en.lower() == lower:
+            return zh
+    return name
+
+
+def _formable_hint_tags(c: CountryState) -> list[str]:
+    """从政府脚本名 / 换皮来源推断可读原国 TAG（优先成型目标如 NED）。"""
+    hints: list[str] = []
+    gov = (c.government_name or "").strip()
+    if gov:
+        for m in _GOV_TAG_RE.finditer(gov.upper()):
+            ht = m.group(1)
+            if ht not in hints:
+                hints.append(ht)
+    for pt in c.previous_country_tags or []:
+        u = str(pt).strip().upper()
+        if u and u not in hints:
+            hints.append(u)
+    cf = (c.changed_tag_from or "").strip().upper()
+    if cf and cf not in hints:
+        hints.append(cf)
+    return hints
+
+
 class NameResolver:
     """把 tag / province id 解析成面向读者的中文（或可读）名称。"""
 
@@ -49,34 +96,77 @@ class NameResolver:
         *,
         country_names: dict[str, str] | None = None,
         province_names: dict[int, str] | None = None,
+        formable_hints: dict[str, list[str]] | None = None,
+        loc: GameLocalisation | None = None,
     ) -> None:
         self._countries: dict[str, str] = dict(country_names or {})
         self._provinces: dict[int, str] = dict(province_names or {})
+        self._formable_hints: dict[str, list[str]] = {
+            k.upper(): list(v) for k, v in (formable_hints or {}).items()
+        }
+        self._loc = loc
 
     @classmethod
-    def from_states(cls, *states: GameState) -> NameResolver:
+    def from_states(
+        cls,
+        *states: GameState,
+        loc: GameLocalisation | None = None,
+    ) -> NameResolver:
         countries: dict[str, str] = {}
         provinces: dict[int, str] = {}
+        hints: dict[str, list[str]] = {}
         for state in states:
             for tag, c in state.countries.items():
-                if c.name and c.name != tag:
-                    countries.setdefault(tag, c.name)
+                t = tag.strip().upper()
+                if (
+                    c.name
+                    and c.name != tag
+                    and c.name != t
+                    and not looks_mojibake(c.name)
+                ):
+                    countries.setdefault(t, c.name)
+                fh = _formable_hint_tags(c)
+                if fh:
+                    existing = hints.setdefault(t, [])
+                    for h in fh:
+                        if h != t and h not in existing:
+                            existing.append(h)
             for pid, pname in (state.province_names or {}).items():
-                if pname:
-                    provinces.setdefault(pid, pname)
-        return cls(country_names=countries, province_names=provinces)
+                if not pname or looks_mojibake(pname):
+                    continue
+                provinces.setdefault(abs(int(pid)), pname)
+        return cls(
+            country_names=countries,
+            province_names=provinces,
+            formable_hints=hints,
+            loc=loc,
+        )
+
+    def _known_country_label(self, t: str) -> str | None:
+        """仅查表 / 本地化，不走成型提示（避免递归）。"""
+        if t in COUNTRY_ZH:
+            return COUNTRY_ZH[t]
+        save_name = self._countries.get(t)
+        if save_name and save_name != t and not looks_mojibake(save_name):
+            return _country_zh(save_name)
+        if self._loc is not None:
+            loc_name = self._loc.get(t)
+            if loc_name and not looks_mojibake(loc_name):
+                return _country_zh(loc_name)
+        return None
 
     def country(self, tag: str | None) -> str:
         if not tag:
             return "未知势力"
         t = tag.strip().upper()
-        if t in COUNTRY_ZH:
-            return COUNTRY_ZH[t]
-        save_name = self._countries.get(t) or self._countries.get(tag)
-        if save_name and save_name != tag and save_name != t:
-            # 存档常为英文；附 TAG 便于核对
-            return f"{save_name}（{t}）"
-        return f"{t}"
+        known = self._known_country_label(t)
+        if known is not None:
+            return known
+        for hint in self._formable_hints.get(t, []):
+            label = self._known_country_label(hint)
+            if label is not None:
+                return label
+        return t
 
     def country_with_tag(self, tag: str | None) -> str:
         """正文少用；需要对照时：条顿骑士团（TEU）。"""
@@ -90,22 +180,18 @@ class NameResolver:
 
     def province(self, pid: int | str) -> str:
         try:
-            i = int(pid)
+            i = abs(int(pid))
         except (TypeError, ValueError):
             return str(pid)
         if i in PROVINCE_ZH:
             return PROVINCE_ZH[i]
         save_name = self._provinces.get(i)
-        if save_name:
-            # 存档英文地名尽量换成中文
-            from eu4_chronicle.names.catalog import PLACE_EN_ZH
-
-            if save_name in PLACE_EN_ZH:
-                return PLACE_EN_ZH[save_name]
-            for en, zh in PLACE_EN_ZH.items():
-                if en.lower() == save_name.lower():
-                    return zh
-            return save_name
+        if save_name and not looks_mojibake(save_name):
+            return _place_zh(save_name)
+        if self._loc is not None:
+            loc_name = self._loc.get(f"PROV{i}")
+            if loc_name and not looks_mojibake(loc_name):
+                return _place_zh(loc_name)
         return f"省份{i}"
 
     def war_goal(self, goal_type: str | None) -> str | None:
@@ -177,6 +263,7 @@ class NameResolver:
             else:
                 summary = f"{c(tag)} 失去 {p(detail.get('provinces'))}"
         elif ev.kind == "core_gained":
+            # 默认战报会滤掉此类；include_global 时仍可读化
             summary = f"{c(tag)} 新增核心：{p(detail.get('cores'))}"
         elif ev.kind == "core_lost":
             summary = f"{c(tag)} 失去核心：{p(detail.get('cores'))}"
@@ -311,10 +398,10 @@ class NameResolver:
                 summary = f"{c(tag)} 君主更迭"
         elif ev.kind == "manpower_changed":
             summary = (
-                f"{c(tag)} 当前人力 {float(detail.get('from', 0)):.1f}→"
-                f"{float(detail.get('to', 0)):.1f}（千人）；"
-                f"人力上限 {float(detail.get('max_from', 0)):.1f}→"
-                f"{float(detail.get('max_to', 0)):.1f}（千人）"
+                f"{c(tag)} 当前人力 {float(detail.get('from', 0)):.1f}k→"
+                f"{float(detail.get('to', 0)):.1f}k；"
+                f"人力上限 {float(detail.get('max_from', 0)):.1f}k→"
+                f"{float(detail.get('max_to', 0)):.1f}k"
             )
         elif ev.kind == "army_changed":
             summary = f"{c(tag)} 陆军约 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"

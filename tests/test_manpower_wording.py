@@ -28,15 +28,16 @@ def test_diff_and_rewrite_separate_current_and_max():
     ev = next(e for e in raw.events if e.kind == "manpower_changed")
     assert "当前人力" in ev.summary
     assert "人力上限" in ev.summary
-    assert "千人" in ev.summary
-    assert "15.2" in ev.summary and "17.8" in ev.summary
-    assert "20.0" in ev.summary and "22.0" in ev.summary
+    assert "千人" not in ev.summary
+    assert "15.2k" in ev.summary and "17.8k" in ev.summary
+    assert "20.0k" in ev.summary and "22.0k" in ev.summary
 
     names = NameResolver(country_names={"TEU": "条顿骑士团"})
     out = names.rewrite_event(ev)
     assert "当前人力" in out.summary
     assert "人力上限" in out.summary
-    assert "千人" in out.summary
+    assert "千人" not in out.summary
+    assert "15.2k" in out.summary
     # 禁止旧式「人力 a/b → c/d」含混写法作为唯一表述
     assert "条顿骑士团 人力 " not in out.summary
 
@@ -65,15 +66,17 @@ def test_mock_narrative_and_brief_use_explicit_labels():
     narrative = _mock_narrative_paragraph(diff, names, ae)
     assert "当前人力" in narrative
     assert "人力上限" in narrative
-    assert "千人" in narrative
-    assert "15.2→17.8" in narrative
+    assert "千人" not in narrative
+    assert "15.2k→17.8k" in narrative
 
     brief = make_brief(diff, names=names, ae=ae)
     assert "当前人力" in brief
     assert "人力上限" in brief
-    assert "千人" in brief
+    assert "叙事内政硬数字" in brief
+    assert "15.2k→17.8k" in brief
+    assert "成稿后缀" in brief or "k" in brief
     assert "十五万二千" in brief or "严禁" in brief
-    assert "禁止含混" in brief
+    assert "禁止含混" in brief or "禁止编造" in brief
 
 
 def test_mock_war_section_no_war_stays_short_no_domestic_dump():
@@ -89,7 +92,7 @@ def test_mock_war_section_no_war_stays_short_no_domestic_dump():
             DiffEvent(
                 kind="manpower_changed",
                 tag="TEU",
-                summary="当前人力 15.2→17.8（千人）",
+                summary="当前人力 15.2k→17.8k",
                 detail={"from": 15.2, "to": 17.8, "max_from": 20.0, "max_to": 20.0},
             ),
             DiffEvent(

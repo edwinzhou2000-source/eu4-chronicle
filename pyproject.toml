@@ -1,7 +1,7 @@
 [project]
 name = "eu4-chronicle"
 version = "0.1.0"
-description = "EU4 本机存档 Diff 与多角色战报合成（白银段）"
+description = "EU4 本机存档 Diff 与多角色战报合成"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

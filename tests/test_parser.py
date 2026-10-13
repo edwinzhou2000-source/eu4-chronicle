@@ -58,6 +58,23 @@ def test_parse_sample_curr_wars():
     assert state.province_names.get(151) == "Constantinople"
 
 
+def test_province_names_abs_negative_keys_skip_garbled():
+    """真档 provinces 键为 -id；乱码 name 不入库。"""
+    text = """
+    date="1460.6.10"
+    player="NED"
+    countries={ NED={ government_rank=1 } }
+    provinces={
+      -54={ name="Stade" }
+      -55={ name="\x11Xe" }
+    }
+    """
+    state = parse_save_text(text)
+    assert state.province_names.get(54) == "Stade"
+    assert 55 not in state.province_names
+    assert -54 not in state.province_names
+
+
 def test_ironman_binary_rejected(tmp_path: Path):
     path = tmp_path / "iron.eu4"
     path.write_bytes(b"EU4bin" + b"\x00" * 100)
@@ -94,3 +111,68 @@ def test_parse_save_text_roundtrip_fields():
     state = parse_save_text(text)
     assert state.countries["FRA"].technology["mil_tech"] == 6
     assert state.countries["FRA"].cores == [183]
+
+
+def test_development_prefers_raw_over_homeland():
+    """UI 总发展度用 raw_development；勿被较小的 development（本土）抢走。"""
+    text = """
+    date="1460.1.1"
+    player="NED"
+    countries={
+      NED={
+        name="Netherlands"
+        development=268
+        raw_development=431
+        owned_provinces={ 1 2 3 }
+      }
+    }
+    """
+    state = parse_save_text(text)
+    assert state.countries["NED"].development == 431.0
+
+
+def test_development_falls_back_to_development_field():
+    text = """
+    date="1460.1.1"
+    player="NED"
+    countries={
+      NED={
+        development=218
+        owned_provinces={ 1 2 }
+      }
+    }
+    """
+    state = parse_save_text(text)
+    assert state.countries["NED"].development == 218.0
+
+
+def test_count_ships_and_regiments_once_not_doubled():
+    """真档 navy/army 为重复键块；舰/团只计一次，禁止 35→70 双计。"""
+    text = """
+    date="1460.6.10"
+    player="NE8"
+    countries={
+      NE8={
+        owned_provinces={ 97 }
+        navy={
+          id={ id=1 type=54 }
+          ship={ id={ id=1 type=54 } type="cog" }
+          ship={ id={ id=2 type=54 } type="cog" }
+          ship={ id={ id=3 type=54 } type="barque" }
+        }
+        army={
+          id={ id=10 type=50 }
+          regiment={ id={ id=10 type=50 } type="infantry" }
+          regiment={ id={ id=11 type=50 } type="infantry" }
+        }
+        army={
+          id={ id=12 type=50 }
+          regiment={ id={ id=12 type=50 } type="cavalry" }
+        }
+      }
+    }
+    """
+    state = parse_save_text(text)
+    c = state.countries["NE8"]
+    assert c.navy_size == 3.0
+    assert c.army_size == 3.0

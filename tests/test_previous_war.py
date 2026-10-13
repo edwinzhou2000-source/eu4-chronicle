@@ -151,7 +151,7 @@ def test_assess_and_mock_war_lists_ended_without_force_dump():
         DiffEvent(
             kind="manpower_changed",
             tag="TEU",
-            summary="当前人力 15.2→17.8（千人）",
+            summary="当前人力 15.2k→17.8k",
             detail={"from": 15.2, "to": 17.8},
         )
     )
