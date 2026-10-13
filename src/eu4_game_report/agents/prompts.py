@@ -45,7 +45,7 @@ FORCE_RULES_BLOCK = """
 - **本轮不做**也禁止提及：army_tradition / navy_tradition / army_professionalism（军队传统、海军传统、职业度）。
 """
 
-HISTORIAN_SYSTEM = """你是《欧陆风云4》编年史官，为玩家撰写可发到中文社区的短帖叙事。
+HISTORIAN_SYSTEM = """你是《欧陆风云4》史官，为玩家撰写可发到中文社区的短帖叙事。
 要求：
 - 简体中文；欧陆风云史书口吻，有因果与主次
 - **段落职责（叙事）**：只写开疆/失地、成型换皮、任务一句、当前人力与人力上限/陆海军/科技/稳定/发展等内政跳变
@@ -84,7 +84,7 @@ STRATEGIST_SYSTEM = """你是《欧陆风云4》军师，为社区战报写「�
 - 输出简洁 Markdown 要点，不要重复史官全文，不要写成内政年鉴
 """
 
-CHRONICLER_SYSTEM = """你是《欧陆风云4》战报纪事官，专写「任务与剧情」——读者要的是**可读战报段落**，不是任务 log。
+MISSIONS_SYSTEM = """你是《欧陆风云4》战报纪事官，专写「任务与剧情」——读者要的是**可读战报段落**，不是任务 log。
 要求：
 - 简体中文；像史书短章：用叙事串起**已办成的关键任务节点**，禁止「本区间共办成 N 项…余下 N 项不具名」清单体
 - 挑 **2–5 个**最有戏的**具名任务**深写（title + 必要一句意涵）；其余用一句带过（如「同期还办成多枚扩张/内政节点」）
@@ -159,10 +159,10 @@ EDITOR_SYSTEM = """你是战报主编。根据 Diff 与多角色要点，写**�
 
 def user_prompt_for_role(role: str, brief: str) -> str:
     headers = {
-        "historian": "请根据以下（已按玩家过滤、已可读化）存档 Diff 撰写编年叙事：",
+        "historian": "请根据以下（已按玩家过滤、已可读化）存档 Diff 撰写叙事：",
         "strategist": "请根据以下 Diff 撰写战局要点（须引用战争分数态势）：",
         "diplomat": "请根据以下 Diff 撰写外交与 AE 分析（收附优先于断盟；严格遵守 AE 态势；无跳变勿写机制教程）：",
-        "chronicler": "请根据以下 Diff 撰写「任务与剧情」小节（只写具名已完成任务；勿写完成弹窗）：",
+        "missions": "请根据以下 Diff 撰写「任务与剧情」小节（只写具名已完成任务；勿写完成弹窗）：",
     }
     return f"{headers[role]}\n\n```\n{brief}\n```\n"
 
@@ -172,9 +172,9 @@ def editor_user_prompt(
     historian: str,
     strategist: str,
     diplomat: str,
-    chronicler: str = "",
+    missions: str = "",
 ) -> str:
-    _ = chronicler  # 任务书小节已下线
+    _ = missions  # 任务书小节已下线
     return (
         "请合成一篇社区可分享成稿。多角色稿仅供取材，禁止原样粘贴。"
         "遵守 brief 中的「叙事内政硬数字」、AE 态势、战争分数态势、军事科技/代差与交战军力规则、"

@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from eu4_chronicle.agents.llm import LLMError, chat_completion
-from eu4_chronicle.config import LLM_KEY_MISSING_HINT, Settings
-from eu4_chronicle.pipeline import analyze_saves
+from eu4_game_report.agents.llm import LLMError, chat_completion
+from eu4_game_report.config import LLM_KEY_MISSING_HINT, Settings
+from eu4_game_report.pipeline import analyze_saves
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
@@ -32,7 +32,7 @@ def test_resolved_mode_llm_does_not_silently_fallback():
 
 def test_openai_model_env_alias(monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL", "gemini-2.0-flash")
-    monkeypatch.delenv("EU4_CHRONICLE_MODEL", raising=False)
+    monkeypatch.delenv("EU4_GAME_REPORT_MODEL", raising=False)
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.model == "gemini-2.0-flash"
 
@@ -111,7 +111,7 @@ async def test_analyze_llm_path_with_mocked_chat(monkeypatch):
             )
         return f"角色草稿：{system[:12]}"
 
-    monkeypatch.setattr("eu4_chronicle.agents.chat_completion", fake_chat)
+    monkeypatch.setattr("eu4_game_report.agents.chat_completion", fake_chat)
 
     report = await analyze_saves(
         SAMPLES / "byz_1444.eu4",

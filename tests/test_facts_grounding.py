@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import (
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import (
     _mock_editor,
     _mock_ending,
     _mock_narrative_paragraph,
     _mock_war_section,
 )
-from eu4_chronicle.agents.prompts import EDITOR_SYSTEM, HISTORIAN_SYSTEM
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import (
+from eu4_game_report.agents.prompts import EDITOR_SYSTEM, HISTORIAN_SYSTEM
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import (
     consolidate_subject_alliance,
     drop_lonely_alliance_breaks,
     filter_diff,
 )
-from eu4_chronicle.models import (
+from eu4_game_report.models import (
     CountryState,
     DiffEvent,
     DiffResult,
@@ -24,8 +24,8 @@ from eu4_chronicle.models import (
     WarParticipant,
     WarState,
 )
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.warscore import (
+from eu4_game_report.names import NameResolver
+from eu4_game_report.warscore import (
     BANNED_EMPTY_PHRASES,
     assess_player_wars,
     classify_warscore,
@@ -379,8 +379,8 @@ def test_mock_ticking_dedup_and_no_next_page_fluff():
 
 def test_section_ownership_no_cross_repeat_ae_or_vassal():
     """AE 引导与收附不跨叙事/战局重复。"""
-    from eu4_chronicle.agents import _mock_diplo_section
-    from eu4_chronicle.models import CountryRelation, CountryState, GameState
+    from eu4_game_report.agents import _mock_diplo_section
+    from eu4_game_report.models import CountryRelation, CountryState, GameState
 
     names = NameResolver()
     diff = names.rewrite_diff(

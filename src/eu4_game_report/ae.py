@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from eu4_chronicle.models import DiffResult, GameState
+from eu4_game_report.models import DiffResult, GameState
 
 # 欧陆风云：包围网——对他国 AE ≥ 50（好感修正绝对值）
 COALITION_AE_THRESHOLD = 50.0

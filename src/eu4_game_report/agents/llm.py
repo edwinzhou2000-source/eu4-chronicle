@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from eu4_chronicle.config import LLM_KEY_MISSING_HINT, Settings
+from eu4_game_report.config import LLM_KEY_MISSING_HINT, Settings
 
 
 class LLMError(RuntimeError):

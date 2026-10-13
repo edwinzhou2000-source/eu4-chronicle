@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
-from eu4_chronicle.localisation import GameLocalisation, looks_mojibake
-from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState
-from eu4_chronicle.names.catalog import COUNTRY_EN_ZH, COUNTRY_ZH, PLACE_EN_ZH, PROVINCE_ZH
-from eu4_chronicle.names.wars import translate_war_name
+from eu4_game_report.localisation import GameLocalisation, looks_mojibake
+from eu4_game_report.models import CountryState, DiffEvent, DiffResult, GameState
+from eu4_game_report.names.catalog import COUNTRY_EN_ZH, COUNTRY_ZH, PLACE_EN_ZH, PROVINCE_ZH
+from eu4_game_report.names.wars import translate_war_name
 
 # government_name 如 NYDD_NED_unite_province_gov_2 → 抽出 NED
 _GOV_TAG_RE = re.compile(r"(?:^|_)([A-Z]{3})(?:_|$)")
@@ -196,14 +196,14 @@ class NameResolver:
 
     def war_goal(self, goal_type: str | None) -> str | None:
         """有中文映射才返回；原始脚本键（含 _）返回 None，避免成稿泄漏。"""
-        from eu4_chronicle.names.catalog import WAR_GOAL_ZH
+        from eu4_game_report.names.catalog import WAR_GOAL_ZH
 
         if not goal_type:
             return None
         return WAR_GOAL_ZH.get(goal_type)
 
     def casus_belli(self, cb: str | None) -> str | None:
-        from eu4_chronicle.names.catalog import CASUS_BELLI_ZH
+        from eu4_game_report.names.catalog import CASUS_BELLI_ZH
 
         if not cb:
             return None
@@ -245,7 +245,7 @@ class NameResolver:
                 f"{detail.get('to') or tag or '?'}（成立新国家或换皮）"
             )
         elif ev.kind == "mission_completed":
-            from eu4_chronicle.localisation import is_readable_display_title
+            from eu4_game_report.localisation import is_readable_display_title
 
             title = detail.get("title")
             if title and detail.get("loc_found") and is_readable_display_title(str(title)):

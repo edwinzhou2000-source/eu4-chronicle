@@ -5,21 +5,21 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from eu4_chronicle.ae import AeAssessment, assess_player_ae
-from eu4_chronicle.agents import (
+from eu4_game_report.ae import AeAssessment, assess_player_ae
+from eu4_game_report.agents import (
     make_brief,
     run_diplomat,
     run_editor,
     run_historian,
     run_strategist,
 )
-from eu4_chronicle.config import Settings, get_settings
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff
-from eu4_chronicle.localisation import get_game_localisation
-from eu4_chronicle.models import ChronicleReport, DiffResult, GameState
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save
+from eu4_game_report.config import Settings, get_settings
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff
+from eu4_game_report.localisation import get_game_localisation
+from eu4_game_report.models import GameReport, DiffResult, GameState
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save
 
 
 async def analyze_saves(
@@ -28,7 +28,7 @@ async def analyze_saves(
     *,
     settings: Settings | None = None,
     include_global: bool = False,
-) -> ChronicleReport:
+) -> GameReport:
     settings = settings or get_settings()
     prev_state = await asyncio.to_thread(parse_save, Path(prev))
     curr_state = await asyncio.to_thread(parse_save, Path(curr))
@@ -46,7 +46,7 @@ async def analyze_states(
     *,
     settings: Settings | None = None,
     include_global: bool = False,
-) -> ChronicleReport:
+) -> GameReport:
     settings = settings or get_settings()
     raw = await asyncio.to_thread(diff_states, prev, curr)
     raw_count = len(raw.events)
@@ -83,7 +83,7 @@ async def synthesize(
     settings: Settings | None = None,
     names: NameResolver | None = None,
     ae: AeAssessment | None = None,
-) -> ChronicleReport:
+) -> GameReport:
     settings = settings or get_settings()
     names = names or NameResolver()
     if ae is None:
@@ -110,14 +110,14 @@ async def synthesize(
         historian,
         strategist,
         diplomat,
-        chronicler=None,
+        missions=None,
         names=names,
         ae=ae,
     )
 
     player_label = names.country(diff.player) if diff.player else "EU4"
     title = f"{player_label} 战报（{diff.prev_date or '?'} → {diff.curr_date or '?'}）"
-    return ChronicleReport(
+    return GameReport(
         title=title,
         prev_date=diff.prev_date,
         curr_date=diff.curr_date,

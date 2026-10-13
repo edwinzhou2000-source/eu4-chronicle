@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import _mock_war_section, make_brief
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save_text
-from eu4_chronicle.warscore import assess_player_wars, war_guidance_lines
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import _mock_war_section, make_brief
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save_text
+from eu4_game_report.warscore import assess_player_wars, war_guidance_lines
 
 PREV_SAVE = """
 date="1447.6.1"
@@ -137,7 +137,7 @@ def test_assess_and_mock_war_lists_ended_without_force_dump():
     curr = parse_save_text(CURR_SAVE)
     filtered = filter_diff(diff_states(prev, curr), prev=prev, curr=curr)
     # 附加编制跳变：无总战分时不得塞进战局要点
-    from eu4_chronicle.models import DiffEvent
+    from eu4_game_report.models import DiffEvent
 
     filtered.events.append(
         DiffEvent(
@@ -212,7 +212,7 @@ previous_war={
 
 def test_optional_real_teu_saves_detect_naklo():
     """若本机有条顿 1447→1468 真档，过滤后应含 Naklo 等结束战争。"""
-    from eu4_chronicle.parser import parse_save
+    from eu4_game_report.parser import parse_save
 
     candidates: list[Path] = [
         Path.home()

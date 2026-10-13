@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.localisation import GameLocalisation
-from eu4_chronicle.mission_scripts import (
+from eu4_game_report.localisation import GameLocalisation
+from eu4_game_report.mission_scripts import (
     build_mission_script_index,
     index_events_file,
     index_missions_file,

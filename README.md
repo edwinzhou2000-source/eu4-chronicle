@@ -1,4 +1,4 @@
-# EU4 战报（eu4-chronicle）
+# EU4 战报 · Game Report
 
 本机读取《欧陆风云4》**非铁人**存档，对两份 `.eu4` 做 Diff，经 **史官 / 军师 / 外交官** 分析后，由 **主编** 合成一篇可复制分享的简体中文 Markdown 战报。
 
@@ -27,8 +27,8 @@
 需要 **Python 3.11+** 与 [uv](https://github.com/astral-sh/uv)。
 
 ```bash
-git clone https://github.com/edwinzhou2000-source/eu4-chronicle.git
-cd eu4-chronicle
+git clone https://github.com/edwinzhou2000-source/eu4-game-report.git
+cd eu4-game-report
 cp .env.example .env
 # 编辑 .env：填 OPENAI_API_KEY（要用 LLM）；存档路径一般可自动探测
 uv sync --extra desktop --extra llm
@@ -47,7 +47,7 @@ bash scripts/install-desktop-shortcut.sh
 也可在 WSL 终端临时启动：
 
 ```bash
-uv run eu4-chronicle-desktop
+uv run eu4-game-report-desktop
 ```
 
 无桌面窗时会用系统浏览器打开选档页；回车或 Ctrl+C 退出并停服。
@@ -56,14 +56,14 @@ uv run eu4-chronicle-desktop
 
 ```bat
 uv sync --extra desktop --extra llm
-uv run eu4-chronicle-desktop
+uv run eu4-game-report-desktop
 ```
 
 也可使用仓库内 `scripts\EU4战报.bat`（仅当仓库本身在 Windows 盘；勿从 `\\wsl$` 双击）。
 
 ## 选档页怎么用
 
-桌面或 `uv run eu4-chronicle serve` 后打开 `http://127.0.0.1:18765/`：
+桌面或 `uv run eu4-game-report serve` 后打开 `http://127.0.0.1:18765/`：
 
 1. 选**同一局**、玩家 TAG 相同的两份非铁人档（较早 / 较新）
 2. 模式：
@@ -102,7 +102,7 @@ EU4_SAVE_DIR=C:\Users\YourName\Documents\Paradox Interactive\Europa Universalis 
 OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
-EU4_CHRONICLE_MODE=llm
+EU4_GAME_REPORT_MODE=llm
 ```
 
 **Gemini（官方 OpenAI 兼容端点）：**
@@ -111,12 +111,12 @@ EU4_CHRONICLE_MODE=llm
 OPENAI_API_KEY=你的_Gemini_API_Key
 OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 OPENAI_MODEL=gemini-2.0-flash
-EU4_CHRONICLE_MODE=llm
+EU4_GAME_REPORT_MODE=llm
 ```
 
 | | Mock | LLM |
 |--|------|-----|
-| 怎么开 | 默认环境、或 `--mode mock` / UI「离线」 | `--mode llm` / `EU4_CHRONICLE_MODE=llm` **且**已设 Key；UI 有 Key 时默认选 LLM |
+| 怎么开 | 默认环境、或 `--mode mock` / UI「离线」 | `--mode llm` / `EU4_GAME_REPORT_MODE=llm` **且**已设 Key；UI 有 Key 时默认选 LLM |
 | 用途 | 无 Key 也可出可分享成稿 | 文笔更活；**缺 Key 不会静默回退 mock**，会报错提示 |
 
 可选：`EU4_GAME_DIR` / `EU4_PARADOX_DOCS`（本地化与 Mod 名；一般可自动探测）。
@@ -126,7 +126,7 @@ EU4_CHRONICLE_MODE=llm
 仓库样例（无需真档）：
 
 ```bash
-uv run eu4-chronicle analyze \
+uv run eu4-game-report analyze \
   --prev samples/byz_1444.eu4 \
   --curr samples/byz_1453.eu4 \
   --mode mock
@@ -135,22 +135,22 @@ uv run eu4-chronicle analyze \
 本机真档：
 
 ```bash
-uv run eu4-chronicle analyze \
+uv run eu4-game-report analyze \
   --prev "$EU4_SAVE_DIR/prev.eu4" \
   --curr "$EU4_SAVE_DIR/curr.eu4" \
   --mode llm \
-  --out ~/Desktop/chronicle.md
+  --out ~/Desktop/game-report.md
 ```
 
 常用调试：
 
 ```bash
-uv run eu4-chronicle list-saves
-uv run eu4-chronicle dump-war-scores --save path/to/save.eu4
-uv run eu4-chronicle dump-military --save path/to/save.eu4 --tags TEU,POL
-uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --include-global   # 保留全球事件
-uv run eu4-chronicle analyze --prev a.eu4 --curr b.eu4 --verbose          # 打印三角色草稿
-uv run eu4-chronicle serve                                                # http://127.0.0.1:18765/
+uv run eu4-game-report list-saves
+uv run eu4-game-report dump-war-scores --save path/to/save.eu4
+uv run eu4-game-report dump-military --save path/to/save.eu4 --tags TEU,POL
+uv run eu4-game-report analyze --prev a.eu4 --curr b.eu4 --include-global   # 保留全球事件
+uv run eu4-game-report analyze --prev a.eu4 --curr b.eu4 --verbose          # 打印三角色草稿
+uv run eu4-game-report serve                                                # http://127.0.0.1:18765/
 ```
 
 ## 选档建议
@@ -179,7 +179,7 @@ uv run pytest
 ## 项目结构
 
 ```
-src/eu4_chronicle/
+src/eu4_game_report/
   parser/      # .eu4 解压与关键字段（含 relations / opinion_cache）
   diff/        # 两态 Diff（含 previous_war 等）
   filter.py    # 玩家中心过滤

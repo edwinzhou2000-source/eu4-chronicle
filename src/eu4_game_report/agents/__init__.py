@@ -5,15 +5,15 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import AeAssessment, ae_guidance_lines, assess_player_ae
-from eu4_chronicle.agents import prompts
-from eu4_chronicle.agents.llm import chat_completion
-from eu4_chronicle.config import Settings
-from eu4_chronicle.diff import events_to_brief
-from eu4_chronicle.filter import vassalized_tags
-from eu4_chronicle.models import AgentSection, DiffResult
-from eu4_chronicle.names import NameResolver, default_resolver
-from eu4_chronicle.warscore import (
+from eu4_game_report.ae import AeAssessment, ae_guidance_lines, assess_player_ae
+from eu4_game_report.agents import prompts
+from eu4_game_report.agents.llm import chat_completion
+from eu4_game_report.config import Settings
+from eu4_game_report.diff import events_to_brief
+from eu4_game_report.filter import vassalized_tags
+from eu4_game_report.models import AgentSection, DiffResult
+from eu4_game_report.names import NameResolver, default_resolver
+from eu4_game_report.warscore import (
     WarAssessment,
     assess_player_wars,
     format_ticking_bonus,
@@ -33,7 +33,7 @@ async def run_historian(
     return await _run_role(
         settings,
         "historian",
-        "史官 · 编年叙事",
+        "史官 · 叙事",
         prompts.HISTORIAN_SYSTEM,
         brief,
         diff,
@@ -82,7 +82,7 @@ async def run_diplomat(
     )
 
 
-async def run_chronicler(
+async def run_missions(
     settings: Settings,
     diff: DiffResult,
     brief: str,
@@ -92,9 +92,9 @@ async def run_chronicler(
 ) -> AgentSection:
     return await _run_role(
         settings,
-        "chronicler",
+        "missions",
         "纪事官 · 任务与剧情",
-        prompts.CHRONICLER_SYSTEM,
+        prompts.MISSIONS_SYSTEM,
         brief,
         diff,
         names,
@@ -109,7 +109,7 @@ async def run_editor(
     historian: AgentSection,
     strategist: AgentSection,
     diplomat: AgentSection,
-    chronicler: AgentSection | None = None,
+    missions: AgentSection | None = None,
     *,
     names: NameResolver | None = None,
     ae: AeAssessment | None = None,
@@ -121,12 +121,12 @@ async def run_editor(
         content = _mock_editor(diff, names, ae)
         return AgentSection(role="editor", title="主编 · 合成战报", content=content, mock=True)
 
-    chron_text = chronicler.content if chronicler is not None else ""
+    missions_text = missions.content if missions is not None else ""
     text = await chat_completion(
         settings,
         system=prompts.EDITOR_SYSTEM,
         user=prompts.editor_user_prompt(
-            brief, historian.content, strategist.content, diplomat.content, chron_text
+            brief, historian.content, strategist.content, diplomat.content, missions_text
         ),
     )
     # LLM 易把提示词示例数写进叙事；成稿叙事段强制换回 Diff 硬数字
@@ -175,7 +175,7 @@ def _mock_role(role: str, diff: DiffResult, names: NameResolver, ae: AeAssessmen
     if role == "strategist":
         return _mock_war_section(diff, names, ae, heading=False)
 
-    if role == "chronicler":
+    if role == "missions":
         return _mock_missions_section(diff, heading=False)
 
     return _mock_diplo_section(diff, names, ae, heading=False)
@@ -219,7 +219,7 @@ def _mock_missions_section(diff: DiffResult, *, heading: bool = True) -> str:
             return "本期未见新完成的任务书节点。"
         lines.append("- 本期未见新完成的任务书节点。")
         return "\n".join(lines)
-    from eu4_chronicle.localisation import is_readable_display_title
+    from eu4_game_report.localisation import is_readable_display_title
 
     named = [
         e
@@ -373,7 +373,7 @@ def _narrative_fact_bits(diff: DiffResult, names: NameResolver) -> list[str]:
 
     missions = [e for e in diff.events if e.kind == "mission_completed"]
     if missions:
-        from eu4_chronicle.localisation import is_readable_display_title
+        from eu4_game_report.localisation import is_readable_display_title
 
         named = [
             e
@@ -457,7 +457,7 @@ def _splice_grounded_narrative(
 
 def _war_standing_detail_bits(s, names: NameResolver, *, compact: bool = False) -> list[str]:
     """战争目标 / 占领 / 战役等档内细节（有则写）。compact=已结束战争用短写。"""
-    from eu4_chronicle.localisation import sanitize_display_name
+    from eu4_game_report.localisation import sanitize_display_name
 
     bits: list[str] = []
     # 已结束：不写 ticking / 占领数 / 损兵明细
@@ -881,7 +881,7 @@ def _mission_guidance_lines(diff: DiffResult) -> list[str]:
     if not missions:
         lines.append("- 本期无 mission_completed：可写「未见新完成任务书节点」。")
         return lines
-    from eu4_chronicle.localisation import is_readable_display_title
+    from eu4_game_report.localisation import is_readable_display_title
 
     lines.append(
         "- **成稿要求（战报不是 log）**：用叙事写 2–5 个关键**具名任务**；"
@@ -932,7 +932,7 @@ def _player_tech_change_bits(diff: DiffResult) -> list[str]:
 
 def _tech_guidance_lines(diff: DiffResult) -> list[str]:
     """brief 军科硬规则：无双方数字禁对比；早期差 1 可评轻代差。"""
-    from eu4_chronicle.agents.prompts import TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH
+    from eu4_game_report.agents.prompts import TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH
 
     compares = [e for e in diff.events if e.kind == "war_tech_compare"]
     lines: list[str] = []
@@ -980,7 +980,7 @@ def _tech_guidance_lines(diff: DiffResult) -> list[str]:
 
 def _force_guidance_lines(diff: DiffResult) -> list[str]:
     """brief 交战军力：无双方同维数字禁该维对比。"""
-    from eu4_chronicle.agents.prompts import FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH
+    from eu4_game_report.agents.prompts import FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH
 
     compares = [e for e in diff.events if e.kind == "war_tech_compare"]
     lines: list[str] = []

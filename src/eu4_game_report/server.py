@@ -8,16 +8,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from eu4_chronicle.agents.llm import LLMError
-from eu4_chronicle.config import format_save_dir, get_settings
-from eu4_chronicle.pipeline import analyze_saves
-from eu4_chronicle.saves import list_eu4_files, pick_default_saves
+from eu4_game_report.agents.llm import LLMError
+from eu4_game_report.config import format_save_dir, get_settings
+from eu4_game_report.pipeline import analyze_saves
+from eu4_game_report.saves import list_eu4_files, pick_default_saves
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 
 app = FastAPI(
-    title="EU4 Chronicle",
+    title="EU4 战报",
     description="本机 EU4 存档 Diff 与多角色战报服务（仅绑定本机回环地址）",
     version="0.1.0",
 )

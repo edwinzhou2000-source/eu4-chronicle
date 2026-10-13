@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eu4_chronicle.agents import make_brief, _mock_editor
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff
-from eu4_chronicle.localisation import (
+from eu4_game_report.agents import make_brief, _mock_editor
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff
+from eu4_game_report.localisation import (
     GameLocalisation,
     enrich_mission_diff,
     humanize_mission_id,
     is_garbled_loc,
     parse_localisation_yml,
 )
-from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save_text
+from eu4_game_report.models import CountryState, DiffEvent, DiffResult, GameState
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save_text
 
 
 def _country(tag: str, missions: list[str], **kwargs) -> CountryState:
@@ -180,7 +180,7 @@ def test_enrich_mission_diff_attaches_text():
 
 def test_enrich_mission_ignores_script_reward_events():
     """成稿路径不注入完成弹窗（即便传入 script_index）。"""
-    from eu4_chronicle.mission_scripts import MissionScriptIndex, RewardEventText
+    from eu4_game_report.mission_scripts import MissionScriptIndex, RewardEventText
 
     class _Idx(MissionScriptIndex):
         def reward_events_for(self, mission_id, loc):  # type: ignore[override]
@@ -267,7 +267,7 @@ def test_brief_and_mock_editor_omit_missions_section():
     assert "## 任务与剧情" not in brief
 
     names = NameResolver(country_names={"TEU": "Teutonic Order"})
-    from eu4_chronicle.ae import assess_player_ae
+    from eu4_game_report.ae import assess_player_ae
 
     ae = assess_player_ae(diff)
     md = _mock_editor(diff, names, ae)
@@ -286,7 +286,7 @@ def test_load_localisation_from_temp_roots(tmp_path: Path):
         'l_english:\n teu_x_title:0 "Seek Protection"\n teu_x_desc:0 "Ask the Empire."\n',
         encoding="utf-8",
     )
-    from eu4_chronicle.localisation import load_localisation_from_roots
+    from eu4_game_report.localisation import load_localisation_from_roots
 
     loc = load_localisation_from_roots([game])
     text = loc.mission_text("teu_x")

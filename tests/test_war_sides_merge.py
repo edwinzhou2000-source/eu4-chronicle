@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.names.wars import _is_garbled_war_name, translate_war_name
-from eu4_chronicle.parser import parse_save_text
+from eu4_game_report.names.wars import _is_garbled_war_name, translate_war_name
+from eu4_game_report.parser import parse_save_text
 
 
 def test_merge_defenders_from_participant_sides():
@@ -44,9 +44,9 @@ def test_merge_defenders_from_participant_sides():
 
 
 def test_filter_keeps_war_when_player_only_on_attacker_list_after_merge():
-    from eu4_chronicle.diff import diff_states
-    from eu4_chronicle.filter import filter_diff
-    from eu4_chronicle.parser import parse_save_text
+    from eu4_game_report.diff import diff_states
+    from eu4_game_report.filter import filter_diff
+    from eu4_game_report.parser import parse_save_text
 
     prev = parse_save_text(
         """

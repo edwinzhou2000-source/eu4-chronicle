@@ -16,8 +16,8 @@ from typing import Optional
 
 import uvicorn
 
-from eu4_chronicle.config import get_settings
-from eu4_chronicle.server import app as fastapi_app
+from eu4_game_report.config import get_settings
+from eu4_game_report.server import app as fastapi_app
 
 _server: Optional[uvicorn.Server] = None
 _thread: Optional[threading.Thread] = None
@@ -72,7 +72,7 @@ def _start_server(host: str, port: int) -> None:
         assert _server is not None
         _server.run()
 
-    _thread = threading.Thread(target=_run, name="eu4-chronicle-uvicorn", daemon=True)
+    _thread = threading.Thread(target=_run, name="eu4-game-report-uvicorn", daemon=True)
     _thread.start()
 
 
@@ -217,7 +217,7 @@ def ensure_server(host: str, port: int) -> tuple[str, bool]:
         if not _port_free(host, port):
             print(
                 f"端口 {host}:{port} 已被占用且 /health 不可用。"
-                "请关闭占用进程，或设置 EU4_CHRONICLE_PORT。",
+                "请关闭占用进程，或设置 EU4_GAME_REPORT_PORT。",
                 file=sys.stderr,
             )
             raise SystemExit(2)
@@ -249,7 +249,7 @@ def main() -> None:
     except ImportError:
         print(
             "未安装桌面依赖。请执行：uv sync --extra desktop\n"
-            "然后再运行：uv run eu4-chronicle-desktop\n"
+            "然后再运行：uv run eu4-game-report-desktop\n"
             "（Linux/WSL 无 GTK 时也会自动改用浏览器。）",
             file=sys.stderr,
         )

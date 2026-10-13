@@ -34,7 +34,7 @@ if [[ ! -d "${REPO_PATH}" ]]; then
   exit 10
 fi
 if [[ ! -f "${REPO_PATH}/pyproject.toml" ]]; then
-  echo "[错误] 不是 EU4 Chronicle 仓库（缺少 pyproject.toml）：${REPO_PATH}" >&2
+  echo "[错误] 不是 EU4 战报仓库（缺少 pyproject.toml）：${REPO_PATH}" >&2
   exit 11
 fi
 
@@ -54,6 +54,6 @@ if [[ ! -d "${REPO_PATH}/.venv" ]]; then
   uv sync --extra desktop --extra llm
 fi
 
-echo "[信息] 启动 eu4-chronicle-desktop（窗口/浏览器打开前请勿关本黑框）…"
+echo "[信息] 启动 eu4-game-report-desktop（窗口/浏览器打开前请勿关本黑框）…"
 echo "[信息] 选档页通常为 http://127.0.0.1:18765/"
-exec uv run eu4-chronicle-desktop
+exec uv run eu4-game-report-desktop

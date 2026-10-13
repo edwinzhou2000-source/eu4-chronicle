@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from eu4_chronicle.models import DiffEvent, DiffResult
+from eu4_game_report.models import DiffEvent, DiffResult
 
 # 显著正分：基本打赢 / 优势在握
 DECISIVE_SCORE = 50.0

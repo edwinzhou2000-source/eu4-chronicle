@@ -353,13 +353,13 @@ class DiffResult(BaseModel):
 
 
 class AgentSection(BaseModel):
-    role: Literal["historian", "strategist", "diplomat", "chronicler", "editor"]
+    role: Literal["historian", "strategist", "diplomat", "missions", "editor"]
     title: str
     content: str
     mock: bool = False
 
 
-class ChronicleReport(BaseModel):
+class GameReport(BaseModel):
     title: str
     prev_date: str
     curr_date: str

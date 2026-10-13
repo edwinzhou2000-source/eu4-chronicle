@@ -1,4 +1,4 @@
-from eu4_chronicle.cli import app
+from eu4_game_report.cli import app
 
 if __name__ == "__main__":
     app()

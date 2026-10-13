@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from eu4_chronicle.names.catalog import COUNTRY_ZH, PLACE_EN_ZH, WAR_ADJECTIVE_ZH
+from eu4_game_report.names.catalog import COUNTRY_ZH, PLACE_EN_ZH, WAR_ADJECTIVE_ZH
 
 _CONQUEST = re.compile(
     r"^(?P<adj>.+?)\s+(?P<kind>Reconquest|Conquest|Invasion|Aggression)\s+of\s+(?P<place>.+)$",

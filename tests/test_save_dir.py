@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from eu4_chronicle import config
-from eu4_chronicle.config import (
+from eu4_game_report import config
+from eu4_game_report.config import (
     Settings,
     format_save_dir,
     resolve_default_save_dir,

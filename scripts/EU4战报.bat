@@ -50,7 +50,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-uv run eu4-chronicle-desktop
+uv run eu4-game-report-desktop
 if errorlevel 1 (
   echo 桌面端退出异常。请确认已配置 .env（LLM 模式需要 OPENAI_API_KEY），且端口 18765 空闲。
   echo 若仍报 gi / GTK / QT：请改用桌面 EU4战报.cmd（WSL 安装脚本生成）。

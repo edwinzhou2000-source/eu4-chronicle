@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.agents import _mock_narrative_paragraph, make_brief
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState
-from eu4_chronicle.names import NameResolver
+from eu4_game_report.agents import _mock_narrative_paragraph, make_brief
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.diff import diff_states
+from eu4_game_report.models import CountryState, DiffEvent, DiffResult, GameState
+from eu4_game_report.names import NameResolver
 
 
 def test_diff_and_rewrite_separate_current_and_max():
@@ -81,8 +81,8 @@ def test_mock_narrative_and_brief_use_explicit_labels():
 
 def test_mock_war_section_no_war_stays_short_no_domestic_dump():
     """无战争时战局要点不得塞发展度/威望/AE/编制流水账。"""
-    from eu4_chronicle.agents import _mock_war_section
-    from eu4_chronicle.ae import assess_player_ae
+    from eu4_game_report.agents import _mock_war_section
+    from eu4_game_report.ae import assess_player_ae
 
     diff = DiffResult(
         prev_date="a",

@@ -4,22 +4,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import (
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import (
     _mock_editor,
     _mock_narrative_paragraph,
     _mock_war_section,
     make_brief,
 )
-from eu4_chronicle.agents.prompts import (
+from eu4_game_report.agents.prompts import (
     EDITOR_SYSTEM,
     FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH,
     HISTORIAN_SYSTEM,
     STRATEGIST_SYSTEM,
 )
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import enrich_war_tech_snapshots, filter_diff
-from eu4_chronicle.models import (
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import enrich_war_tech_snapshots, filter_diff
+from eu4_game_report.models import (
     CountryState,
     DiffEvent,
     DiffResult,
@@ -27,8 +27,8 @@ from eu4_chronicle.models import (
     WarParticipant,
     WarState,
 )
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 FORCE_FORBIDDEN = FORCE_COMPARE_FORBIDDEN_WITHOUT_BOTH
@@ -243,7 +243,7 @@ def test_prompts_forbid_force_compare_without_numbers():
         assert "同维" in sys or "体量" in sys or "军力" in sys
         assert "传统" in sys or "职业度" in sys
         assert "不得省略" in sys or "必须写入" in sys
-    from eu4_chronicle.agents.prompts import FORCE_RULES_BLOCK
+    from eu4_game_report.agents.prompts import FORCE_RULES_BLOCK
 
     assert "必须写入" in FORCE_RULES_BLOCK
     assert "不得省略" in FORCE_RULES_BLOCK
@@ -252,7 +252,7 @@ def test_prompts_forbid_force_compare_without_numbers():
 
 def test_parse_discipline_from_nested_modifier_bonus():
     """嵌套 modifier 内小幅 discipline bonus → 聚合为 1.0+sum。"""
-    from eu4_chronicle.parser import parse_save_text
+    from eu4_game_report.parser import parse_save_text
 
     text = """
 date="1450.1.1"
@@ -303,7 +303,7 @@ active_war={
 
 def test_parse_regiment_morale_median_as_land_morale_proxy():
     """真档形态：无裸 land_morale，用 army.regiment.morale 中位数作士气代理。"""
-    from eu4_chronicle.parser import parse_save_text
+    from eu4_game_report.parser import parse_save_text
 
     text = """
 date="1454.1.1"
@@ -368,7 +368,7 @@ active_war={
 
 def test_regiment_morale_enters_war_military_compare_copy():
     """双方团级士气代理 → war_tech_compare / mock 成稿必须写入士气≈对比。"""
-    from eu4_chronicle.parser import parse_save_text
+    from eu4_game_report.parser import parse_save_text
 
     text = """
 date="1454.1.1"
@@ -441,8 +441,8 @@ active_war={
 
 def test_dump_military_tags_teu_pol_no_ghost_tilde():
     """--tags TEU,POL / POL~ 规范化；命中真 POL，不造幽灵 tag。"""
-    from eu4_chronicle.parser import format_military_dump, parse_save_text
-    from eu4_chronicle.parser.clausewitz import parse_clausewitz_v2
+    from eu4_game_report.parser import format_military_dump, parse_save_text
+    from eu4_game_report.parser.clausewitz import parse_clausewitz_v2
 
     text = """
 date="1454.1.1"
@@ -483,8 +483,8 @@ active_war={
 
 
 def test_dump_military_lists_candidates_and_parsed():
-    from eu4_chronicle.parser import format_military_dump, parse_save_text
-    from eu4_chronicle.parser.clausewitz import parse_clausewitz_v2
+    from eu4_game_report.parser import format_military_dump, parse_save_text
+    from eu4_game_report.parser.clausewitz import parse_clausewitz_v2
 
     text = """
 date="1450.1.1"

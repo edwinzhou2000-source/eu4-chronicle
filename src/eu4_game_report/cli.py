@@ -1,4 +1,4 @@
-"""CLI：eu4-chronicle analyze / dump-war-scores / dump-military / serve / list-saves。"""
+"""CLI：eu4-game-report analyze / dump-war-scores / dump-military / serve / list-saves。"""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from typing import Optional
 
 import typer
 
-from eu4_chronicle.config import get_settings
-from eu4_chronicle.pipeline import analyze_saves
+from eu4_game_report.config import get_settings
+from eu4_game_report.pipeline import analyze_saves
 
 app = typer.Typer(
-    name="eu4-chronicle",
-    help="EU4 本机存档 Diff 与多角色战报",
+    name="eu4-game-report",
+    help="EU4 战报 (Game Report)：本机存档 Diff 与多角色战报",
     no_args_is_help=True,
 )
 
@@ -32,7 +32,7 @@ def list_saves(
     if not directory.exists():
         typer.echo(f"存档目录不存在: {directory}", err=True)
         raise typer.Exit(code=1)
-    from eu4_chronicle.saves import list_eu4_files
+    from eu4_game_report.saves import list_eu4_files
 
     files = list_eu4_files(directory)
     if not files:
@@ -53,7 +53,7 @@ def dump_war_scores_cmd(
     ),
 ) -> None:
     """打印玩家参与战争的原始战分相关字段，便于贴回钉死总战分/ticking 映射。"""
-    from eu4_chronicle.parser import IronmanSaveError, SaveParseError, dump_war_scores
+    from eu4_game_report.parser import IronmanSaveError, SaveParseError, dump_war_scores
 
     try:
         text = dump_war_scores(save, player_only=not all_wars)
@@ -76,7 +76,7 @@ def dump_military_cmd(
     ),
 ) -> None:
     """打印纪律/士气解析结果与候选键，便于确认真档键位。"""
-    from eu4_chronicle.parser import IronmanSaveError, SaveParseError, dump_military
+    from eu4_game_report.parser import IronmanSaveError, SaveParseError, dump_military
 
     tag_list = None
     if tags:
@@ -112,7 +112,7 @@ def analyze(
     ),
 ) -> None:
     """解析两档 → 玩家过滤 Diff → 史官/军师/外交官 → 主编成稿。"""
-    from eu4_chronicle.agents.llm import LLMError
+    from eu4_game_report.agents.llm import LLMError
 
     settings = get_settings()
     if mode:
@@ -130,7 +130,7 @@ def analyze(
     )
     typer.echo("")
     if verbose:
-        from eu4_chronicle.parser import parse_save
+        from eu4_game_report.parser import parse_save
 
         for section in report.sections:
             if section.role == "editor":
@@ -174,7 +174,7 @@ def analyze(
         typer.echo("---")
         typer.echo("")
         typer.echo(
-            f"(完整原始字段: uv run eu4-chronicle dump-war-scores --save {curr})",
+            f"(完整原始字段: uv run eu4-game-report dump-war-scores --save {curr})",
             err=True,
         )
 
@@ -194,7 +194,7 @@ def serve(
 
     settings = get_settings()
     uvicorn.run(
-        "eu4_chronicle.server:app",
+        "eu4_game_report.server:app",
         host=host or settings.host,
         port=port or settings.port,
         reload=False,

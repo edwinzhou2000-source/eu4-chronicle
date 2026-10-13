@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from eu4_chronicle.server import app
+from eu4_game_report.server import app
 
 
 def test_ui_index_served() -> None:
@@ -49,7 +49,7 @@ def test_health_still_ok() -> None:
 def test_saves_with_samples(monkeypatch, tmp_path: Path) -> None:
     samples = Path(__file__).resolve().parents[1] / "samples"
     monkeypatch.setenv("EU4_SAVE_DIR", str(samples))
-    from eu4_chronicle import config
+    from eu4_game_report import config
 
     config.get_settings.cache_clear()
     try:
@@ -72,7 +72,7 @@ def test_saves_default_skips_autosave(monkeypatch, tmp_path: Path) -> None:
     import os
     import time
 
-    from eu4_chronicle import config
+    from eu4_game_report import config
 
     older = tmp_path / "manual_old.eu4"
     newer = tmp_path / "manual_new.eu4"

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff, filter_player_events
-from eu4_chronicle.models import DiffEvent
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff, filter_player_events
+from eu4_game_report.models import DiffEvent
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
@@ -80,7 +80,7 @@ def test_name_resolver_prefers_chinese_and_provinces():
 
 def test_province_skips_garbled_and_uses_loc():
     """乱码存档名跳过；localisation PROV{{id}} + PLACE_EN_ZH 出中文。"""
-    from eu4_chronicle.localisation import GameLocalisation
+    from eu4_game_report.localisation import GameLocalisation
 
     loc = GameLocalisation(entries={"PROV54": "Stade", "PROV55": "Oldenburg"})
     names = NameResolver(
@@ -95,8 +95,8 @@ def test_province_skips_garbled_and_uses_loc():
 
 def test_country_uses_loc_and_formable_hints():
     """存档 name=TAG 时：localisation / 成型政府名 → 中文全名，勿留裸 TAG。"""
-    from eu4_chronicle.localisation import GameLocalisation
-    from eu4_chronicle.models import CountryState, GameState
+    from eu4_game_report.localisation import GameLocalisation
+    from eu4_game_report.models import CountryState, GameState
 
     loc = GameLocalisation(entries={"WES": "Westphalia"})
     state = GameState(
@@ -122,7 +122,7 @@ def test_country_uses_loc_and_formable_hints():
 
 def test_core_gained_dropped_from_player_report():
     """战报只保留取得省份；造核/新增核心不进默认 Diff。"""
-    from eu4_chronicle.parser import parse_save_text
+    from eu4_game_report.parser import parse_save_text
 
     prev = parse_save_text(
         """

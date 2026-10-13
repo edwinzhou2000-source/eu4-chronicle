@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from eu4_chronicle.parser import is_ghost_active_war, parse_save, parse_save_text
+from eu4_game_report.parser import is_ghost_active_war, parse_save, parse_save_text
 
 
 def test_prune_when_all_foes_landless():

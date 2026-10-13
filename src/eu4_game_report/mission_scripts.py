@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from eu4_chronicle.localisation import (
+from eu4_game_report.localisation import (
     GameLocalisation,
     enabled_mod_paths,
     is_garbled_loc,

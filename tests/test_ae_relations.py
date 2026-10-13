@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.models import DiffResult
-from eu4_chronicle.parser import parse_save_text
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.models import DiffResult
+from eu4_game_report.parser import parse_save_text
 
 
 def test_parse_ae_from_aggressive_expansion_opinion_modifier():

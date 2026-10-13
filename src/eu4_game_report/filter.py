@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.models import DiffEvent, DiffResult, GameState, WarState
+from eu4_game_report.models import DiffEvent, DiffResult, GameState, WarState
 
 # 开局百年内：军科差 1 级可评「轻代差」
 EARLY_GAME_YEAR_CUTOFF = 1500

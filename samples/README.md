@@ -10,5 +10,5 @@
 演示：
 
 ```bash
-uv run eu4-chronicle analyze --prev samples/byz_1444.eu4 --curr samples/byz_1453.eu4 --mode mock
+uv run eu4-game-report analyze --prev samples/byz_1444.eu4 --curr samples/byz_1453.eu4 --mode mock
 ```

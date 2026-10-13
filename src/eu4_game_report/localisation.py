@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from eu4_chronicle.config import windows_drive_path_to_wsl, wslize_save_dir_value
+from eu4_game_report.config import windows_drive_path_to_wsl, wslize_save_dir_value
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ def enrich_mission_diff(
     不注入 reward_events：存档无法证明区间内是否真弹出脚本挂接的 country_event。
     ``script_index`` 保留参数以兼容调用方，成稿路径忽略。
     """
-    from eu4_chronicle.models import DiffResult
+    from eu4_game_report.models import DiffResult
 
     _ = script_index
     if not isinstance(diff, DiffResult):

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.models import CountryState, DiffEvent, DiffResult, GameState, WarState
+from eu4_game_report.models import CountryState, DiffEvent, DiffResult, GameState, WarState
 
 
 def diff_states(prev: GameState, curr: GameState) -> DiffResult:
-    """全量 Diff（含全球事件）。玩家中心裁剪见 ``eu4_chronicle.filter``。"""
+    """全量 Diff（含全球事件）。玩家中心裁剪见 ``eu4_game_report.filter``。"""
     player = curr.player or prev.player
     events: list[DiffEvent] = []
 

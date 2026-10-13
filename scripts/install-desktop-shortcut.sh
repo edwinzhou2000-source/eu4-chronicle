@@ -78,9 +78,9 @@ tmp_cmd="$(mktemp)"
 cat > "$tmp_cmd" <<EOF
 @echo off
 setlocal EnableExtensions
-title EU4 Chronicle
+title EU4 Game Report
 echo ========================================
-echo   EU4 Chronicle - launch via WSL
+echo   EU4 Game Report - launch via WSL
 echo ========================================
 echo Distro: ${DISTRO}
 echo Repo:   ${REPO_PATH}

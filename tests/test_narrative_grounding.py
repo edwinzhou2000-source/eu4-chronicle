@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import (
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import (
     _mock_narrative_paragraph,
     _splice_grounded_narrative,
     make_brief,
 )
-from eu4_chronicle.models import DiffEvent, DiffResult
-from eu4_chronicle.names import NameResolver
+from eu4_game_report.models import DiffEvent, DiffResult
+from eu4_game_report.names import NameResolver
 
 
 def _diff() -> DiffResult:

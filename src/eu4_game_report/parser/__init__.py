@@ -5,7 +5,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from eu4_chronicle.models import (
+from eu4_game_report.models import (
     CountryRelation,
     CountryState,
     GameState,
@@ -14,7 +14,7 @@ from eu4_chronicle.models import (
     WarParticipant,
     WarState,
 )
-from eu4_chronicle.parser.clausewitz import ObjectNode, parse_clausewitz_v2
+from eu4_game_report.parser.clausewitz import ObjectNode, parse_clausewitz_v2
 
 # 真档战争目标块名（Osallek WarGoalType + take_claim 等别名）
 _WAR_GOAL_KEYS = (
@@ -715,7 +715,7 @@ def _extract_province_names(root: ObjectNode) -> dict[int, str]:
     Clausewitz 真档省份键常为负数（``-54``）；统一存为正 id。
     中文私有字体编码的 name 视为乱码，跳过（留给 localisation PROV{{id}}）。
     """
-    from eu4_chronicle.localisation import looks_mojibake
+    from eu4_game_report.localisation import looks_mojibake
 
     names: dict[int, str] = {}
     provinces = root.get_object("provinces")

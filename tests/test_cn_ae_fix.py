@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import (
+from eu4_game_report.ae import (
     MECHANISM_FLUFF_PHRASES,
     ae_guidance_lines,
     assess_player_ae,
     contains_ae_scare,
     contains_mechanism_fluff,
 )
-from eu4_chronicle.agents import _mock_diplo_section, _mock_editor, _mock_war_section
-from eu4_chronicle.agents import prompts as role_prompts
-from eu4_chronicle.models import DiffEvent, DiffResult
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.names.wars import translate_war_name
+from eu4_game_report.agents import _mock_diplo_section, _mock_editor, _mock_war_section
+from eu4_game_report.agents import prompts as role_prompts
+from eu4_game_report.models import DiffEvent, DiffResult
+from eu4_game_report.names import NameResolver
+from eu4_game_report.names.wars import translate_war_name
 
 
 def test_liv_and_baltic_tags_chinese():
@@ -151,7 +151,7 @@ def test_ae_high_without_three_eligible_not_warn_coalition():
 
 def test_ae_guidance_names_truce_blocked_exactly():
     """停战未能入网须写准确国数与国名，禁止「约 N 国」。"""
-    from eu4_chronicle.models import CountryRelation, CountryState, GameState
+    from eu4_game_report.models import CountryRelation, CountryState, GameState
 
     names = NameResolver()
     diff = _teu_diff()
@@ -210,7 +210,7 @@ def test_ae_guidance_names_truce_blocked_exactly():
 
 
 def test_ae_coalition_warns_when_three_outraged_eligible():
-    from eu4_chronicle.models import CountryRelation, CountryState, GameState
+    from eu4_game_report.models import CountryRelation, CountryState, GameState
 
     names = NameResolver()
     diff = _teu_diff()

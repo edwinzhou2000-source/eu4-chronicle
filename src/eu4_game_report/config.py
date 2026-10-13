@@ -332,12 +332,12 @@ class Settings(BaseSettings):
     )
     model: str = Field(
         default="gpt-4o-mini",
-        validation_alias=AliasChoices("OPENAI_MODEL", "EU4_CHRONICLE_MODEL"),
+        validation_alias=AliasChoices("OPENAI_MODEL", "EU4_GAME_REPORT_MODEL"),
     )
-    mode: str = Field(default="mock", validation_alias="EU4_CHRONICLE_MODE")
-    host: str = Field(default="127.0.0.1", validation_alias="EU4_CHRONICLE_HOST")
-    port: int = Field(default=18765, validation_alias="EU4_CHRONICLE_PORT")
-    agent_concurrency: int = Field(default=4, validation_alias="EU4_CHRONICLE_CONCURRENCY")
+    mode: str = Field(default="mock", validation_alias="EU4_GAME_REPORT_MODE")
+    host: str = Field(default="127.0.0.1", validation_alias="EU4_GAME_REPORT_HOST")
+    port: int = Field(default=18765, validation_alias="EU4_GAME_REPORT_PORT")
+    agent_concurrency: int = Field(default=4, validation_alias="EU4_GAME_REPORT_CONCURRENCY")
 
     @field_validator("save_dir", mode="before")
     @classmethod
@@ -429,7 +429,7 @@ class Settings(BaseSettings):
         if self.resolved_mode() != "llm":
             return
         if not self.has_openai_key():
-            from eu4_chronicle.agents.llm import LLMError
+            from eu4_game_report.agents.llm import LLMError
 
             raise LLMError(LLM_KEY_MISSING_HINT)
 

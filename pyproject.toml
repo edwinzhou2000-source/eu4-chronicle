@@ -1,7 +1,7 @@
 [project]
-name = "eu4-chronicle"
+name = "eu4-game-report"
 version = "0.1.0"
-description = "EU4 本机存档 Diff 与多角色战报合成"
+description = "EU4 战报 (Game Report)：本机存档 Diff 与多角色战报合成"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,19 +27,19 @@ dev = [
 ]
 
 [project.scripts]
-eu4-chronicle = "eu4_chronicle.cli:app"
-eu4-chronicle-desktop = "eu4_chronicle.desktop:main"
+eu4-game-report = "eu4_game_report.cli:app"
+eu4-game-report-desktop = "eu4_game_report.desktop:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/eu4_chronicle"]
+packages = ["src/eu4_game_report"]
 
 # 把选档前端一并打进 wheel（hatchling 默认只收 .py）
 [tool.hatch.build.targets.wheel.force-include]
-"src/eu4_chronicle/static" = "eu4_chronicle/static"
+"src/eu4_game_report/static" = "eu4_game_report/static"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

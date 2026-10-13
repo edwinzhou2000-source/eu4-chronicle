@@ -120,7 +120,7 @@ wheels = [
 ]
 
 [[package]]
-name = "eu4-chronicle"
+name = "eu4-game-report"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

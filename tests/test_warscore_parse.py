@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save_text
-from eu4_chronicle.warscore import assess_player_wars
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save_text
+from eu4_game_report.warscore import assess_player_wars
 
 # 贴近真档：重复 participants={ value= tag= } + defender_score + history
 # （无 last_warscore_quarter 时回退 Osallek defender_score）
@@ -359,7 +359,7 @@ def test_nonzero_participant_war_score_fallback():
 
 
 def test_dump_war_scores_labels_total_and_ticking():
-    from eu4_chronicle.parser import format_war_score_dump, parse_save_text
+    from eu4_game_report.parser import format_war_score_dump, parse_save_text
 
     state = parse_save_text(NAKLO_TRUE_DUMP_WAR, source_path="synthetic.eu4")
     dump = format_war_score_dump(state)
@@ -519,7 +519,7 @@ def test_pipeline_true_dump_total_64_not_ticking_17_as_contested():
 
 
 def test_format_ticking_bonus_copy():
-    from eu4_chronicle.warscore import format_ticking_bonus
+    from eu4_game_report.warscore import format_ticking_bonus
 
     assert format_ticking_bonus(16.8) == "战争目标加分 +17"
     assert format_ticking_bonus(-12.4) == "战争目标加分 -12"

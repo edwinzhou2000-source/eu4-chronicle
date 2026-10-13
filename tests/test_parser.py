@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from eu4_chronicle.parser import IronmanSaveError, parse_save, parse_save_text
-from eu4_chronicle.parser.clausewitz import parse_clausewitz_v2
+from eu4_game_report.parser import IronmanSaveError, parse_save, parse_save_text
+from eu4_game_report.parser.clausewitz import parse_clausewitz_v2
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 

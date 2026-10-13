@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
-from eu4_chronicle.localisation import looks_mojibake, sanitize_display_name
-from eu4_chronicle.models import DiffEvent, DiffResult
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save_text
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import filter_diff
-from eu4_chronicle.warscore import assess_player_wars, war_guidance_lines
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import _mock_editor, _mock_narrative_paragraph, _mock_war_section
+from eu4_game_report.localisation import looks_mojibake, sanitize_display_name
+from eu4_game_report.models import DiffEvent, DiffResult
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save_text
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import filter_diff
+from eu4_game_report.warscore import assess_player_wars, war_guidance_lines
 
 
 def test_side_labels_puts_player_first():
-    from eu4_chronicle.agents import _side_labels
+    from eu4_game_report.agents import _side_labels
 
     names = NameResolver(
         country_names={"TEU": "Teutonic Order", "BOH": "Bohemia", "POL": "Poland"}
@@ -212,8 +212,8 @@ previous_war={
 
 def test_ended_wars_tech_changed_not_contradict_war_section():
     """叙事有本国三科升级时，战局要点不得说「本区间无军科」。"""
-    from eu4_chronicle.agents import make_brief
-    from eu4_chronicle.models import DiffEvent
+    from eu4_game_report.agents import make_brief
+    from eu4_game_report.models import DiffEvent
 
     prev = parse_save_text(
         """

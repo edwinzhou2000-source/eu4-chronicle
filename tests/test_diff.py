@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from eu4_chronicle.diff import diff_states, events_to_brief
-from eu4_chronicle.parser import parse_save
+from eu4_game_report.diff import diff_states, events_to_brief
+from eu4_game_report.parser import parse_save
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 

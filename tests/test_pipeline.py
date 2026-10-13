@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from eu4_chronicle.config import Settings
-from eu4_chronicle.pipeline import analyze_saves
+from eu4_game_report.config import Settings
+from eu4_game_report.pipeline import analyze_saves
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
@@ -54,13 +54,16 @@ async def test_editor_does_not_paste_three_roles_verbatim():
     final = report.final_markdown
 
     # 成稿不得等于「三段原文简单拼接」
-    pasted = f"## 编年叙事\n\n{hist}\n\n## 战局研判\n\n{strat}\n\n## 外交与 AE\n\n{dipl}"
+    pasted = f"## 史官原文\n\n{hist}\n\n## 战局研判\n\n{strat}\n\n## 外交官原文\n\n{dipl}"
     assert pasted not in final
     # 三角色全文不应作为三个独立大段原样出现
     assert final.count(hist) <= 1
-    # 三角色标题旧结构不得出现
-    assert "## 编年叙事" not in final
+    # 旧三角色草稿标题不得原样拼进成稿
+    assert "## 史官原文" not in final
     assert "## 战局研判" not in final
+    assert "## 外交官原文" not in final
+    assert "## 叙事" in final
+    assert "## 战局要点" in final
 
 
 @pytest.mark.asyncio

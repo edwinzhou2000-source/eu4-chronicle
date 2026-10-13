@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from eu4_chronicle.saves import (
+from eu4_game_report.saves import (
     is_autosave_name,
     list_eu4_files,
     pick_default_saves,

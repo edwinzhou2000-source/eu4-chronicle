@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from eu4_chronicle.ae import assess_player_ae
-from eu4_chronicle.agents import (
+from eu4_game_report.ae import assess_player_ae
+from eu4_game_report.agents import (
     _mock_editor,
     _mock_narrative_paragraph,
     _mock_war_section,
     make_brief,
 )
-from eu4_chronicle.agents.prompts import (
+from eu4_game_report.agents.prompts import (
     EDITOR_SYSTEM,
     HISTORIAN_SYSTEM,
     STRATEGIST_SYSTEM,
     TECH_COMPARE_FORBIDDEN_WITHOUT_BOTH,
 )
-from eu4_chronicle.diff import diff_states
-from eu4_chronicle.filter import enrich_war_tech_snapshots, filter_diff, is_early_game_date
-from eu4_chronicle.models import (
+from eu4_game_report.diff import diff_states
+from eu4_game_report.filter import enrich_war_tech_snapshots, filter_diff, is_early_game_date
+from eu4_game_report.models import (
     CountryState,
     DiffEvent,
     DiffResult,
@@ -25,8 +25,8 @@ from eu4_chronicle.models import (
     WarParticipant,
     WarState,
 )
-from eu4_chronicle.names import NameResolver
-from eu4_chronicle.parser import parse_save
+from eu4_game_report.names import NameResolver
+from eu4_game_report.parser import parse_save
 from pathlib import Path
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from eu4_chronicle import desktop
+from eu4_game_report import desktop
 
 
 def test_is_wsl_env(monkeypatch: pytest.MonkeyPatch) -> None:
