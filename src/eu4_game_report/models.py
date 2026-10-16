@@ -36,6 +36,11 @@ class CountryState(BaseModel):
     government_rank: int = 1
     manpower: float = 0.0
     max_manpower: float = 0.0
+    # 财政：国库；月收入（estimated_monthly_income）；月支出（ledger 经常性优先）；净收入=收入−支出
+    treasury: float = 0.0
+    income: float = 0.0
+    expenses: float = 0.0
+    net_income: float = 0.0
     army_size: float = 0.0
     navy_size: float = 0.0
     # 质量：存档缺则 None，禁止臆造；本轮不做传统/职业度
@@ -318,6 +323,8 @@ EventKind = Literal[
     "religion_changed",
     "monarch_changed",
     "manpower_changed",
+    "treasury_changed",
+    "income_changed",
     "army_changed",
     "navy_changed",
     "ae_changed",

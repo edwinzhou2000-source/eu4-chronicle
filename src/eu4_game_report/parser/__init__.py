@@ -216,6 +216,31 @@ def prune_ghost_active_wars(state: GameState) -> GameState:
     return state.model_copy(update={"wars": kept, "raw_meta": meta})
 
 
+def _extract_economy(node: ObjectNode) -> tuple[float, float, float, float]:
+    """国库 / 月收入 / 月支出 / 净收入。
+
+    - 国库：``treasury``
+    - 月收入：``estimated_monthly_income``，否则 ledger 经常性/上月收入
+    - 月支出：优先 ``ledger.last_months_recurring_expenses``（经常性），否则上月总支出
+    - 净收入：收入 − 支出（与 UI「余额」同向；大额一次性军费会反映在上月总支出路径）
+    """
+    treasury = node.get_float("treasury")
+    income = node.get_float_optional("estimated_monthly_income")
+    expenses: float | None = None
+    ledger = node.get_object("ledger")
+    if ledger is not None:
+        if income is None:
+            income = ledger.get_float_optional("last_months_recurring_income")
+            if income is None:
+                income = ledger.get_float_optional("lastmonthincome")
+        expenses = ledger.get_float_optional("last_months_recurring_expenses")
+        if expenses is None:
+            expenses = ledger.get_float_optional("lastmonthexpense")
+    income_v = float(income or 0.0)
+    expenses_v = float(expenses or 0.0)
+    return treasury, income_v, expenses_v, income_v - expenses_v
+
+
 def _extract_country(tag: str, node: ObjectNode) -> CountryState:
     name = node.get_str("name") or tag
     technology = {}
@@ -322,6 +347,8 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
     if changed_from and changed_from not in prev_tags:
         prev_tags.insert(0, changed_from)
 
+    treasury, income, expenses, net_income = _extract_economy(node)
+
     return CountryState(
         tag=tag,
         name=name,
@@ -334,6 +361,10 @@ def _extract_country(tag: str, node: ObjectNode) -> CountryState:
         government_rank=node.get_int("government_rank", 1),
         manpower=node.get_float("manpower"),
         max_manpower=node.get_float("max_manpower"),
+        treasury=treasury,
+        income=income,
+        expenses=expenses,
+        net_income=net_income,
         army_size=node.get_float("army_size") or _count_units(node, "army"),
         navy_size=node.get_float("navy_size") or _count_units(node, "navy"),
         discipline=_resolve_discipline(node),

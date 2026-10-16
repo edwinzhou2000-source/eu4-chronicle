@@ -398,6 +398,14 @@ def _narrative_fact_bits(diff: DiffResult, names: NameResolver) -> list[str]:
                 f"当前人力 {_fmt_num_change(e, unit='k')}；人力上限 "
                 f"{_fmt_num_change(e, key_from='max_from', key_to='max_to', unit='k')}"
             )
+        elif e.kind == "treasury_changed":
+            facts.append(f"国库 {_fmt_num_change(e, digits=0)}")
+        elif e.kind == "income_changed":
+            facts.append(
+                f"月收入 {_fmt_num_change(e, digits=1)}；"
+                f"月支出 {_fmt_num_change(e, key_from='expenses_from', key_to='expenses_to', digits=1)}；"
+                f"净收入 {_fmt_num_change(e, key_from='net_from', key_to='net_to', digits=1)}"
+            )
         elif e.kind == "navy_changed":
             facts.append(f"海军约 {_fmt_num_change(e, digits=0)}")
         elif e.kind == "army_changed":

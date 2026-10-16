@@ -12,6 +12,14 @@ countries={
 		prestige=10
 		manpower=12
 		max_manpower=18
+		treasury=45
+		estimated_monthly_income=8.5
+		ledger={
+			lastmonthincome=8.5
+			lastmonthexpense=7.2
+			last_months_recurring_income=8.5
+			last_months_recurring_expenses=7.2
+		}
 		army_size=14
 		navy_size=8
 		discipline=1.0

@@ -403,6 +403,20 @@ class NameResolver:
                 f"人力上限 {float(detail.get('max_from', 0)):.1f}k→"
                 f"{float(detail.get('max_to', 0)):.1f}k"
             )
+        elif ev.kind == "treasury_changed":
+            summary = (
+                f"{c(tag)} 国库 {float(detail.get('from', 0)):.0f} → "
+                f"{float(detail.get('to', 0)):.0f}"
+            )
+        elif ev.kind == "income_changed":
+            summary = (
+                f"{c(tag)} 月收入 {float(detail.get('from', 0)):.1f}→"
+                f"{float(detail.get('to', 0)):.1f}；"
+                f"月支出 {float(detail.get('expenses_from', 0)):.1f}→"
+                f"{float(detail.get('expenses_to', 0)):.1f}；"
+                f"净收入 {float(detail.get('net_from', 0)):.1f}→"
+                f"{float(detail.get('net_to', 0)):.1f}"
+            )
         elif ev.kind == "army_changed":
             summary = f"{c(tag)} 陆军约 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
         elif ev.kind == "navy_changed":

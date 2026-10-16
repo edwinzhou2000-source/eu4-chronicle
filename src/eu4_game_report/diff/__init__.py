@@ -338,6 +338,41 @@ def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
             )
         )
 
+    if abs(b.treasury - a.treasury) >= 10:
+        events.append(
+            DiffEvent(
+                kind="treasury_changed",
+                tag=tag,
+                summary=f"{tag} 国库 {a.treasury:.0f} → {b.treasury:.0f}",
+                detail={"from": a.treasury, "to": b.treasury},
+            )
+        )
+
+    if (
+        abs(b.income - a.income) >= 1
+        or abs(b.expenses - a.expenses) >= 1
+        or abs(b.net_income - a.net_income) >= 1
+    ):
+        events.append(
+            DiffEvent(
+                kind="income_changed",
+                tag=tag,
+                summary=(
+                    f"{tag} 月收入 {a.income:.1f}→{b.income:.1f}；"
+                    f"月支出 {a.expenses:.1f}→{b.expenses:.1f}；"
+                    f"净收入 {a.net_income:.1f}→{b.net_income:.1f}"
+                ),
+                detail={
+                    "from": a.income,
+                    "to": b.income,
+                    "expenses_from": a.expenses,
+                    "expenses_to": b.expenses,
+                    "net_from": a.net_income,
+                    "net_to": b.net_income,
+                },
+            )
+        )
+
     if abs(b.army_size - a.army_size) >= 1:
         events.append(
             DiffEvent(

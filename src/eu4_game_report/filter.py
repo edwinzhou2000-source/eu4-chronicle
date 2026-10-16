@@ -559,6 +559,8 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
         "religion_changed",
         "monarch_changed",
         "manpower_changed",
+        "treasury_changed",
+        "income_changed",
         "army_changed",
         "navy_changed",
         "stability_changed",
