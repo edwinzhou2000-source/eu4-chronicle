@@ -487,6 +487,10 @@ def filter_diff(
     # 战争参与方军科快照：从 curr 注入，默认进入玩家过滤结果
     if player and curr is not None:
         filtered = enrich_war_tech_snapshots(filtered, curr=curr, player=player)
+    if player and prev is not None and curr is not None:
+        filtered = enrich_subject_development(
+            filtered, prev=prev, curr=curr, player=player
+        )
     return diff.model_copy(
         update={
             "events": filtered,
@@ -494,6 +498,57 @@ def filter_diff(
             "filtered": not include_global,
         }
     )
+
+
+def enrich_subject_development(
+    events: list[DiffEvent],
+    *,
+    prev: GameState,
+    curr: GameState,
+    player: str,
+) -> list[DiffEvent]:
+    """玩家当前附庸只写一条合计：数量 + 发展度之和。
+
+    旧档时还不是附庸的国家，旧值仍用该国当时发展度，避免从 0 起算。
+    """
+    pc = curr.countries.get(player)
+    if pc is None or not pc.subjects:
+        return list(events)
+
+    total_from = 0.0
+    total_to = 0.0
+    counted = 0
+    for tag in pc.subjects:
+        c_curr = curr.countries.get(tag)
+        if c_curr is None:
+            continue
+        c_prev = prev.countries.get(tag)
+        to = float(c_curr.development)
+        fr = float(c_prev.development) if c_prev is not None else to
+        total_from += fr
+        total_to += to
+        counted += 1
+    if counted == 0:
+        return list(events)
+
+    out = list(events)
+    out.append(
+        DiffEvent(
+            kind="subject_development_changed",
+            tag=player,
+            summary=(
+                f"{player} 附庸 {counted} 国，发展度合计 "
+                f"{total_from:.0f}→{total_to:.0f}"
+            ),
+            detail={
+                "from": total_from,
+                "to": total_to,
+                "aggregate": True,
+                "subject_count": counted,
+            },
+        )
+    )
+    return out
 
 
 def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
@@ -555,6 +610,7 @@ def _keep_event(ev: DiffEvent, *, player: str, sphere: set[str]) -> bool:
     # 其他内政（发展度、科技、兵力、任务树…）：仅玩家
     if ev.kind in {
         "development_changed",
+        "subject_development_changed",
         "tech_changed",
         "religion_changed",
         "monarch_changed",

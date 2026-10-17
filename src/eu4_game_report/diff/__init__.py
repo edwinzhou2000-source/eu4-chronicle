@@ -269,12 +269,27 @@ def _diff_country(a: CountryState, b: CountryState) -> list[DiffEvent]:
     sub_gained = sorted(set(b.subjects) - set(a.subjects))
     sub_lost = sorted(set(a.subjects) - set(b.subjects))
     if sub_gained or sub_lost:
+        gained_types = {
+            t: b.subject_types.get(t, "")
+            for t in sub_gained
+            if b.subject_types.get(t)
+        }
+        lost_types = {
+            t: a.subject_types.get(t, "")
+            for t in sub_lost
+            if a.subject_types.get(t)
+        }
         events.append(
             DiffEvent(
                 kind="subject_changed",
                 tag=tag,
                 summary=f"{tag} 附庸变化：+{sub_gained} -{sub_lost}",
-                detail={"gained": sub_gained, "lost": sub_lost},
+                detail={
+                    "gained": sub_gained,
+                    "lost": sub_lost,
+                    "gained_types": gained_types,
+                    "lost_types": lost_types,
+                },
             )
         )
 
@@ -522,6 +537,10 @@ def _war_detail_extras(w: WarState, player: str = "") -> dict:
         extras["war_goal_province"] = w.war_goal_province
     if w.war_goal_tag:
         extras["war_goal_tag"] = w.war_goal_tag
+    if w.original_attacker:
+        extras["original_attacker"] = w.original_attacker
+    if w.original_defender:
+        extras["original_defender"] = w.original_defender
     if w.occupied_provinces is not None:
         extras["occupied_provinces"] = w.occupied_provinces
     if w.last_warscore_quarter is not None:

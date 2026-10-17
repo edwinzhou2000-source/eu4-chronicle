@@ -12,7 +12,11 @@ from eu4_game_report.config import Settings
 from eu4_game_report.diff import events_to_brief
 from eu4_game_report.filter import vassalized_tags
 from eu4_game_report.models import AgentSection, DiffResult
-from eu4_game_report.names import NameResolver, default_resolver
+from eu4_game_report.names import (
+    NameResolver,
+    default_resolver,
+    format_subject_with_type,
+)
 from eu4_game_report.warscore import (
     WarAssessment,
     assess_player_wars,
@@ -292,15 +296,20 @@ def _title_hook(diff: DiffResult, names: NameResolver, ae: AeAssessment) -> str:
 
 
 def _side_labels(
-    tags: list[str], names: NameResolver, *, player: str | None = None, limit: int = 4
+    tags: list[str], names: NameResolver, *, player: str | None = None, limit: int = 4,
+    leader: str | None = None,
 ) -> str:
-    """攻守名单：玩家 TAG 置前，其余保持原序，截断后加「等」。"""
+    """攻守名单：战争领袖置前，其次玩家，截断后加「等」。"""
     ordered: list[str] = []
-    if player and player in tags:
+    if leader and leader in tags:
+        ordered.append(leader)
+    if player and player in tags and player not in ordered:
         ordered.append(player)
     for t in tags:
-        if t and t != player and t not in ordered:
+        if t and t not in ordered:
             ordered.append(t)
+    if leader and leader not in ordered:
+        ordered.insert(0, leader)
     labels = [names.country(t) for t in ordered[:limit]]
     if not labels:
         return "？"
@@ -418,6 +427,11 @@ def _narrative_fact_bits(diff: DiffResult, names: NameResolver) -> list[str]:
             facts.append(f"稳定度 {e.detail.get('from')}→{e.detail.get('to')}")
         elif e.kind == "development_changed":
             facts.append(f"发展度 {_fmt_num_change(e, digits=0)}")
+        elif e.kind == "subject_development_changed":
+            n = int((e.detail or {}).get("subject_count") or 0)
+            facts.append(
+                f"附庸 {n} 国，发展度合计 {_fmt_num_change(e, digits=0)}"
+            )
 
     return facts
 
@@ -621,8 +635,12 @@ def _mock_war_section(
         wlabel = s.war_name_zh or names.war(
             s.war_name, attackers=s.attackers, defenders=s.defenders
         )
-        att = _side_labels(s.attackers, names, player=diff.player, limit=4)
-        defe = _side_labels(s.defenders, names, player=diff.player, limit=4)
+        att = _side_labels(
+            s.attackers, names, player=diff.player, limit=4, leader=s.original_attacker
+        )
+        defe = _side_labels(
+            s.defenders, names, player=diff.player, limit=3, leader=s.original_defender
+        )
         if s.ended:
             if s.player_won is True:
                 result = "和约取胜"
@@ -632,11 +650,8 @@ def _mock_war_section(
                 result = "白和"
             else:
                 result = "已结束"
-            snap = ""
-            if s.score_known:
-                snap = f"；战分 {s.player_score:+.0f}"
             date_bit = f"；{s.ended_date}" if s.ended_date else ""
-            lines.append(f"- 战争「{wlabel}」{result}：{att} vs {defe}{snap}{date_bit}")
+            lines.append(f"- 战争「{wlabel}」{result}：{att} vs {defe}{date_bit}")
         elif s.score_known:
             lines.append(
                 f"- 战争「{wlabel}」：{att} vs {defe}；"
@@ -683,7 +698,7 @@ def _mock_war_section(
                 judge = (
                     f"上述战争均在本区间内打完落幕（胜 {wins} / 负 {losses}；"
                     f"后期档保存时已无进行中战事）。"
-                    "胜负以和约 outcome 为准，无可靠战分时勿写胶着或战分落后。"
+                    "胜负以和约 outcome 为准，勿引用战分或写胶着/战分落后。"
                 )
         elif primary.tier == "decisive":
             judge = f"战分 {primary.player_score:+.0f}，优势在握，可推进和约或巩固占领。"
@@ -751,15 +766,26 @@ def _mock_diplo_section(
     for e in diplo:
         if e.kind == "subject_changed" and e.tag == diff.player:
             gained = e.detail.get("gained") or []
+            lost = e.detail.get("lost") or []
+            gained_types = e.detail.get("gained_types") or {}
+            lost_types = e.detail.get("lost_types") or {}
+            loc = getattr(names, "_loc", None)
             if gained:
-                lines.append(
-                    f"- 收附 {'、'.join(names.country(x) for x in gained)}"
-                    + (
-                        f"；失去附庸 {'、'.join(names.country(x) for x in (e.detail.get('lost') or []))}"
-                        if e.detail.get("lost")
-                        else ""
+                gained_s = "、".join(
+                    format_subject_with_type(
+                        names.country(x), gained_types.get(x), loc=loc
                     )
+                    for x in gained
                 )
+                lost_s = ""
+                if lost:
+                    lost_s = "；失去 " + "、".join(
+                        format_subject_with_type(
+                            names.country(x), lost_types.get(x), loc=loc
+                        )
+                        for x in lost
+                    )
+                lines.append(f"- 收附 {gained_s}{lost_s}")
             else:
                 lines.append(f"- {e.summary}")
         elif e.kind == "alliance_broken":

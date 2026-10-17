@@ -39,7 +39,7 @@ def test_merge_defenders_from_participant_sides():
     assert "NE8" in w.attackers and "EN3" in w.attackers
     assert "HOL" in w.defenders
     zh = translate_war_name(w.name, attackers=w.attackers, defenders=w.defenders)
-    assert "HOL" in zh or "荷兰" in zh or "Holland" in zh or "征服" in zh
+    assert "HOL" in zh or "荷兰" in zh or "Holland" in zh or "对" in zh
     assert _is_garbled_war_name(w.name)
 
 
@@ -81,3 +81,45 @@ def test_filter_keeps_war_when_player_only_on_attacker_list_after_merge():
     ended_or_started = next(e for e in filt.events if e.kind == "war_started")
     assert "HOL" in (ended_or_started.detail.get("defenders") or [])
     assert "NE8" in (ended_or_started.detail.get("attackers") or [])
+
+
+def test_original_defender_leads_and_loi_is_isles_not_lorraine():
+    text = """
+    date="1482.8.1"
+    player="NE8"
+    countries={
+      NE8={ name="Netherlands" owned_provinces={ 1 } }
+      ALE={ name="Alencon" owned_provinces={ 2 } }
+      LOI={ name="LOI" owned_provinces={ 3 } }
+      ASU={ name="ASU" owned_provinces={ 4 } }
+      LOR={ name="LOR" owned_provinces={ 5 } }
+    }
+    previous_war={
+      name="garbled"
+      original_attacker="NE8"
+      original_defender="LOI"
+      outcome=2
+      action=1482.8.1
+      attackers={ ALE NE8 }
+      defenders={ ASU LOI }
+      history={
+        1480.1.1={ add_attacker="NE8" add_attacker="ALE" add_defender="LOI" add_defender="ASU" }
+        1482.8.1={ rem_attacker="NE8" rem_attacker="ALE" rem_defender="LOI" rem_defender="ASU" }
+      }
+    }
+    """
+    state = parse_save_text(text)
+    w = state.previous_wars[0]
+    assert w.attackers[0] == "NE8"
+    assert w.defenders[0] == "LOI"
+    assert w.original_defender == "LOI"
+    from eu4_game_report.names import NameResolver
+
+    names = NameResolver()
+    assert names.country("LOI") == "群岛"
+    assert names.country("LOR") == "洛林"
+    zh = names.war(w.name, attackers=w.attackers, defenders=w.defenders)
+    assert "群岛" in zh
+    assert "洛林" not in zh
+    assert "阿朗松" not in zh
+

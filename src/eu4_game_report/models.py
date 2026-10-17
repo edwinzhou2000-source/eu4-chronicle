@@ -56,6 +56,8 @@ class CountryState(BaseModel):
     allies: list[str] = Field(default_factory=list)
     rivals: list[str] = Field(default_factory=list)
     subjects: list[str] = Field(default_factory=list)
+    # 附庸 TAG → diplomacy.dependency.subject_type（含 Mod 自定义类型）
+    subject_types: dict[str, str] = Field(default_factory=dict)
     cores: list[int] = Field(default_factory=list)
     owned_provinces: list[int] = Field(default_factory=list)
     opinion_of: dict[str, float] = Field(default_factory=dict)
@@ -101,6 +103,8 @@ class WarState(BaseModel):
     attackers: list[str] = Field(default_factory=list)
     defenders: list[str] = Field(default_factory=list)
     participants: list[WarParticipant] = Field(default_factory=list)
+    original_attacker: str = ""
+    original_defender: str = ""
     # 真档原始键
     attacker_score: float | None = None  # 攻方侧 score → ticking（勿当总战分）
     defender_score: float | None = None  # 守方侧 score；无 quarter 时可读作总战分（Osallek）
@@ -318,6 +322,7 @@ EventKind = Literal[
     "war_ended",
     "war_score_changed",
     "development_changed",
+    "subject_development_changed",
     "tech_changed",
     "war_tech_compare",
     "religion_changed",

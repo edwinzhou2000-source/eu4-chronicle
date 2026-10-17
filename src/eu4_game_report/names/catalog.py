@@ -153,8 +153,9 @@ COUNTRY_ZH: dict[str, str] = {
     "LIV": "利沃尼亚骑士团",
     "LNA": "兰纳",
     "LND": "伦斯特",
-    "LOI": "洛林",
+    "LOI": "群岛",
     "LOR": "洛林",
+    "ASU": "阿斯图里亚斯",
     "LUA": "卢安戈",
     "LUB": "吕贝克",
     "LUC": "卢卡",
@@ -462,6 +463,12 @@ COUNTRY_EN_ZH: dict[str, str] = {
     "Naples": "那不勒斯",
     "Teutonic Order": "条顿骑士团",
     "Livonian Order": "利沃尼亚骑士团",
+    "The Isles": "群岛",
+    "Isles": "群岛",
+    "Asturias": "阿斯图里亚斯",
+    "Lorraine": "洛林",
+    "Alençon": "阿朗松",
+    "Auvergne": "奥弗涅",
 }
 
 # 战争目标等地名英→中（常见波罗的海 / 东欧）
@@ -637,4 +644,23 @@ CASUS_BELLI_ZH: dict[str, str] = {
     "cb_humiliate": "羞辱",
     "cb_humiliate_rotw": "羞辱",
     "cb_super_badboy": "遏制扩张",
+}
+
+# diplomacy.dependency.subject_type → 中文（原版；Mod 自定义类型走本地化或原文 id）
+SUBJECT_TYPE_ZH: dict[str, str] = {
+    "vassal": "附庸",
+    "march": "卫戍",
+    "personal_union": "联合统治",
+    "tributary_state": "朝贡国",
+    "daimyo_vassal": "大名",
+    "colony": "殖民领",
+    "self_governing_colony": "自治殖民领",
+    "crown_colony": "直辖殖民领",
+    "private_enterprise": "私人企业殖民领",
+    "trade_company": "贸易公司",
+    "client_vassal": "附庸国",
+    "client_march": "卫戍国",
+    "appanage": "封地",
+    "incorporated_vassal": "整合附庸",
+    "commercial_enterprise": "商业公司",
 }

@@ -48,6 +48,8 @@ class WarStanding:
     major_battles: list[dict] = field(default_factory=list)
     ended: bool = False
     source: str | None = None  # previous_war | active_war | None
+    original_attacker: str = ""
+    original_defender: str = ""
     # previous_war outcome：玩家和约胜负（优先于媾和前战分快照）
     outcome: int | None = None
     player_won: bool | None = None
@@ -196,6 +198,10 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             standing.attackers = list(detail["attackers"])
         if detail.get("defenders"):
             standing.defenders = list(detail["defenders"])
+        if detail.get("original_attacker"):
+            standing.original_attacker = str(detail["original_attacker"])
+        if detail.get("original_defender"):
+            standing.original_defender = str(detail["original_defender"])
         if detail.get("war_goal_type"):
             standing.war_goal_type = detail["war_goal_type"]
         if detail.get("casus_belli"):
@@ -215,8 +221,12 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
             if tick is not None and abs(tick) >= 0.5:
                 standing.ticking_score = tick
 
-        # previous_war 归档分与 outcome 矛盾时 detail.score_unreliable=True，勿写入
-        if score is not None and not detail.get("score_unreliable"):
+        # 进行中战争才采信总战分；已结束战争的归档/消失前快照易误导，不写入 score_known
+        if (
+            score is not None
+            and not standing.ended
+            and not detail.get("score_unreliable")
+        ):
             if e.kind == "war_score_changed" and detail.get("from") is not None:
                 try:
                     standing.score_from = float(detail["from"])
@@ -229,15 +239,17 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
     standings = list(by_war.values())
     for s in standings:
         if s.ended and (s.player_won is not None or s.peace_draw or s.outcome is not None):
-            # 已结束：胜负看 outcome，不用媾和前战分快照分档
+            # 已结束：胜负只看 outcome；丢弃任何战分快照，避免「可靠战分」误导
+            s.score_known = False
+            s.player_score = 0.0
+            s.score_from = None
+            s.ticking_score = None
             if s.peace_draw or s.outcome == 1:
                 s.tier = "draw"
             elif s.player_won is True:
                 s.tier = "victory"
             elif s.player_won is False:
                 s.tier = "defeat"
-            elif s.score_known:
-                s.tier = classify_warscore(s.player_score)
             else:
                 s.tier = "unknown"
         elif s.score_known:
@@ -250,11 +262,12 @@ def assess_player_wars(diff: DiffResult) -> WarAssessment:
 def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list[str]:
     """供 brief / 军师遵守的战分事实行。"""
     naming_rule = (
-        "战争标题硬性：必须按 brief 的攻方 vs 守方书写；"
-        "**禁止**把与玩家同侧的国家写成「对 X 之役 / 对英格兰等国」；"
-        "战名译名含某国但该国与玩家同阵营时，不得改成对战该国；"
+        "战争标题硬性：必须写成「攻方领袖对守方领袖」（brief 的 original / 领袖）；"
+        "**禁止**用字母序靠前的附庸或盟友当战争名（例如把阿朗松、奥弗涅写成战争主角，或把盟友写成被进攻国）；"
+        "LOI 是群岛，LOR 才是洛林，二者不是同一国；"
         "自定义 TAG（EN1/EN3/NE8 等）≠英格兰 ENG，勿臆译成英格兰。"
     )
+    label = country_label or (lambda t: t)
     if not assessment.standings:
         return [
             "本区间无玩家参与的可稽战争（active_war / previous_war 均未检出玩家战事）。"
@@ -266,9 +279,27 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
         wlabel = s.war_name_zh or s.war_name
         side_bits: list[str] = []
         if s.attackers:
-            side_bits.append(f"攻方 {', '.join(s.attackers)}")
+            lead_a = s.original_attacker or s.attackers[0]
+            rest_a = [t for t in s.attackers if t != lead_a]
+            side_bits.append(
+                f"攻方领袖 {label(lead_a)}"
+                + (
+                    f"（其余参战 {'、'.join(label(t) for t in rest_a)}，勿当成战争主角）"
+                    if rest_a
+                    else ""
+                )
+            )
         if s.defenders:
-            side_bits.append(f"守方 {', '.join(s.defenders)}")
+            lead_d = s.original_defender or s.defenders[0]
+            rest_d = [t for t in s.defenders if t != lead_d]
+            side_bits.append(
+                f"守方领袖 {label(lead_d)}"
+                + (
+                    f"（盟友/其余 {'、'.join(label(t) for t in rest_d)}，不是战争目标本身）"
+                    if rest_d
+                    else ""
+                )
+            )
         side = "；".join(side_bits)
         if s.ended and (s.player_won is not None or s.peace_draw or s.outcome is not None):
             if s.peace_draw or s.outcome == 1:
@@ -279,18 +310,11 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
                 result = "玩家和约落败"
             else:
                 result = f"outcome={s.outcome}"
-            score_bit = ""
-            if s.score_known:
-                score_bit = f"；可靠战分 {s.player_score:+.0f}（来自消失前 active 或符号一致的归档分）"
-            else:
-                score_bit = (
-                    "；档内无可靠总战分（previous_war 的 last_warscore 与 outcome 矛盾时已丢弃，"
-                    "**禁止**引用负快照或写战分落后/胶着）"
-                )
             date_bit = f"；媾和日 {s.ended_date}" if s.ended_date else ""
             lines.append(
-                f"「{wlabel}」本区间内已结束 → {result}{score_bit}{date_bit}"
+                f"「{wlabel}」本区间内已结束 → {result}{date_bit}"
                 + (f"；{side}" if side else "")
+                + "；**禁止**引用归档/消失前战分或写战分落后/胶着"
             )
         elif s.score_known:
             lines.append(
@@ -325,10 +349,9 @@ def war_guidance_lines(assessment: WarAssessment, *, country_label=None) -> list
         "战分显著为正（≥50）须写优势在握/基本打赢；"
         "仅在 |总战分| 较低（胶着）时才写胜负未定；"
         "禁止无战分依据的「尘埃未定」。"
-        "已结束战争（previous_war）：胜负以 outcome 为准（2=攻方胜 3=守方胜 1=平局）；"
-        "**不要**写战争目标加分（档内常不保留）；"
-        "归档 last_warscore 与 outcome 符号矛盾时已标不可靠——**禁止引用**；"
-        "仅 brief 给出的可靠战分可写。有 war_* 时必须点名战争，禁止「无可稽战争」套话。"
+        "已结束战争（previous_war / war_ended）：胜负以 outcome 为准（2=攻方胜 3=守方胜 1=平局）；"
+        "**不要**写战争目标加分；**不要**写任何战分数（归档分与消失前快照均易误导）；"
+        "只写和约取胜/落败/白和与参战结构。有 war_* 时必须点名战争，禁止「无可稽战争」套话。"
         "硬性：war_ended = 本区间（两档之间）内发生并打完的战争；"
         "禁止写成「本区间无进行中战争/本区间无战事」——那只是后期档保存当天无 active_war。"
     )

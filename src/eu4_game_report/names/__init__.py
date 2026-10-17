@@ -6,7 +6,13 @@ import re
 
 from eu4_game_report.localisation import GameLocalisation, looks_mojibake
 from eu4_game_report.models import CountryState, DiffEvent, DiffResult, GameState
-from eu4_game_report.names.catalog import COUNTRY_EN_ZH, COUNTRY_ZH, PLACE_EN_ZH, PROVINCE_ZH
+from eu4_game_report.names.catalog import (
+    COUNTRY_EN_ZH,
+    COUNTRY_ZH,
+    PLACE_EN_ZH,
+    PROVINCE_ZH,
+    SUBJECT_TYPE_ZH,
+)
 from eu4_game_report.names.wars import translate_war_name
 
 # government_name 如 NYDD_NED_unite_province_gov_2 → 抽出 NED
@@ -45,6 +51,39 @@ def _fmt_force_side_zh(label: str, snap: dict) -> str:
     if snap.get("naval_morale") is not None:
         bits.append(f"舰船士气{_fmt_quality_num(snap['naval_morale'])}")
     return " ".join(bits)
+
+
+def subject_type_label(
+    type_id: str | None,
+    *,
+    loc: GameLocalisation | None = None,
+) -> str:
+    """附庸类型展示名：原版中文 → 本地化键 → 原文 id（勿一律写成「附庸」）。"""
+    tid = (type_id or "").strip().strip('"')
+    if not tid:
+        return ""
+    if tid in SUBJECT_TYPE_ZH:
+        return SUBJECT_TYPE_ZH[tid]
+    if loc is not None:
+        for key in (tid, f"{tid}_title", f"subject_type_{tid}"):
+            text = loc.get(key)
+            if text and not looks_mojibake(text):
+                return text
+    return tid
+
+
+def format_subject_with_type(
+    country_label: str,
+    type_id: str | None,
+    *,
+    loc: GameLocalisation | None = None,
+) -> str:
+    """如「皮卡第（附庸）」；无类型则只回国名。"""
+    label = (country_label or "").strip()
+    st = subject_type_label(type_id, loc=loc)
+    if label and st:
+        return f"{label}（{st}）"
+    return label or st
 
 
 def _place_zh(name: str) -> str:
@@ -143,16 +182,16 @@ class NameResolver:
         )
 
     def _known_country_label(self, t: str) -> str | None:
-        """仅查表 / 本地化，不走成型提示（避免递归）。"""
-        if t in COUNTRY_ZH:
-            return COUNTRY_ZH[t]
-        save_name = self._countries.get(t)
-        if save_name and save_name != t and not looks_mojibake(save_name):
-            return _country_zh(save_name)
+        """本地化优先于内置表（Mod 会改 TAG 含义，如 LOI=群岛、LOR=洛林）。"""
         if self._loc is not None:
             loc_name = self._loc.get(t)
             if loc_name and not looks_mojibake(loc_name):
                 return _country_zh(loc_name)
+        save_name = self._countries.get(t)
+        if save_name and save_name != t and not looks_mojibake(save_name):
+            return _country_zh(save_name)
+        if t in COUNTRY_ZH:
+            return COUNTRY_ZH[t]
         return None
 
     def country(self, tag: str | None) -> str:
@@ -275,62 +314,86 @@ class NameResolver:
             summary = f"{c(tag)} 将 {c(other)} 列为宿敌"
         elif ev.kind == "rival_cleared":
             summary = f"{c(tag)} 不再视 {c(other)} 为宿敌"
-        elif ev.kind == "war_started":
+        elif ev.kind in {"war_started", "war_ended", "war_score_changed"}:
             wname = self.war(
-                detail.get("name"),
-                attackers=detail.get("attackers"),
-                defenders=detail.get("defenders"),
+                detail.get("name") or detail.get("war"),
+                attackers=[detail["original_attacker"]]
+                if detail.get("original_attacker")
+                else (detail.get("attackers") or []),
+                defenders=[detail["original_defender"]]
+                if detail.get("original_defender")
+                else (detail.get("defenders") or []),
             )
             detail["name_zh"] = wname
-            att = "、".join(c(x) for x in detail.get("attackers") or [])
-            defe = "、".join(c(x) for x in detail.get("defenders") or [])
-            summary = f"爆发战争「{wname}」：{att or '？'} 进攻 {defe or '？'}"
-            pws = detail.get("player_warscore")
-            if pws is not None:
+            if ev.kind == "war_started":
+                att = "、".join(c(x) for x in detail.get("attackers") or [])
+                defe = "、".join(c(x) for x in detail.get("defenders") or [])
+                summary = f"爆发战争「{wname}」：{att or '？'} 进攻 {defe or '？'}"
+                pws = detail.get("player_warscore")
+                if pws is not None:
+                    try:
+                        summary += f"；玩家战分 {float(pws):+.0f}"
+                    except (TypeError, ValueError):
+                        pass
+            elif ev.kind == "war_ended":
+                oa = detail.get("original_attacker")
+                od = detail.get("original_defender")
+                if oa or od:
+                    summary = (
+                        f"战争「{wname}」落下帷幕："
+                        f"攻方领袖 {c(oa) if oa else '？'}，守方领袖 {c(od) if od else '？'}"
+                    )
+                else:
+                    summary = f"战争「{wname}」落下帷幕"
+            else:
+                fr, to = detail.get("from"), detail.get("to")
                 try:
-                    summary += f"；玩家战分 {float(pws):+.0f}"
+                    fr_s = f"{float(fr):+.0f}" if fr is not None else "?"
+                    to_s = f"{float(to):+.0f}" if to is not None else "?"
                 except (TypeError, ValueError):
-                    pass
-        elif ev.kind == "war_ended":
-            wname = self.war(
-                detail.get("name"),
-                attackers=detail.get("attackers"),
-                defenders=detail.get("defenders"),
-            )
-            detail["name_zh"] = wname
-            summary = f"战争「{wname}」落下帷幕"
-        elif ev.kind == "war_score_changed":
-            wname = self.war(
-                detail.get("war") or detail.get("name"),
-                attackers=detail.get("attackers"),
-                defenders=detail.get("defenders"),
-            )
-            detail["name_zh"] = wname
-            fr, to = detail.get("from"), detail.get("to")
-            try:
-                fr_s = f"{float(fr):+.0f}" if fr is not None else "?"
-                to_s = f"{float(to):+.0f}" if to is not None else "?"
-            except (TypeError, ValueError):
-                fr_s, to_s = str(fr), str(to)
-            summary = f"战争「{wname}」中{c(tag)} 战争分数 {fr_s} → {to_s}"
+                    fr_s, to_s = str(fr), str(to)
+                summary = f"战争「{wname}」中{c(tag)} 战争分数 {fr_s} → {to_s}"
         elif ev.kind == "subject_changed":
             if detail.get("appeared"):
                 summary = f"{c(tag)} 出现在后期档中（新生或释放）"
             else:
                 gained = detail.get("gained") or []
                 lost = detail.get("lost") or []
+                gained_types = detail.get("gained_types") or {}
+                lost_types = detail.get("lost_types") or {}
+
+                def _sub_label(t: str, types: dict) -> str:
+                    return format_subject_with_type(
+                        c(t), types.get(t) or types.get(str(t)), loc=self._loc
+                    )
+
                 parts = []
                 if gained:
-                    parts.append("收附 " + "、".join(c(x) for x in gained))
+                    parts.append(
+                        "收附 " + "、".join(_sub_label(x, gained_types) for x in gained)
+                    )
                 if lost:
-                    parts.append("失去附庸 " + "、".join(c(x) for x in lost))
+                    parts.append(
+                        "失去 "
+                        + "、".join(_sub_label(x, lost_types) for x in lost)
+                    )
                 summary = f"{c(tag)} 附庸变化：" + ("；".join(parts) if parts else "结构变动")
                 if detail.get("supersedes_alliance_break") and gained:
-                    summary = f"{c(tag)} 收附 " + "、".join(c(x) for x in gained)
+                    summary = f"{c(tag)} 收附 " + "、".join(
+                        _sub_label(x, gained_types) for x in gained
+                    )
                     if lost:
-                        summary += "；失去附庸 " + "、".join(c(x) for x in lost)
+                        summary += "；失去 " + "、".join(
+                            _sub_label(x, lost_types) for x in lost
+                        )
         elif ev.kind == "development_changed":
             summary = f"{c(tag)} 发展度 {detail.get('from', 0):.0f} → {detail.get('to', 0):.0f}"
+        elif ev.kind == "subject_development_changed":
+            n = int(detail.get("subject_count") or 0)
+            summary = (
+                f"{c(tag)} 附庸 {n} 国，发展度合计 "
+                f"{float(detail.get('from', 0)):.0f}→{float(detail.get('to', 0)):.0f}"
+            )
         elif ev.kind == "tech_changed":
             labels = {"adm_tech": "行政科技", "dip_tech": "外交科技", "mil_tech": "军事科技"}
             tech = labels.get(str(detail.get("tech")), str(detail.get("tech")))
