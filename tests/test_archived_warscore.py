@@ -81,29 +81,33 @@ previous_war={
 """
 
 
-def test_active_to_previous_keeps_prev_warscore_64():
+def test_active_to_previous_ended_war_no_score_in_prose():
+    """消失前战分可留在 Diff detail，但评估/成稿不写，避免「可靠战分」误导。"""
     prev = parse_save_text(PREV_ACTIVE_NAKLO)
     curr = parse_save_text(CURR_PREVIOUS_NAKLO_BAD)
     filtered = filter_diff(diff_states(prev, curr), prev=prev, curr=curr)
     ended = [e for e in filtered.events if e.kind == "war_ended"]
     assert len(ended) == 1
     detail = ended[0].detail or {}
-    assert detail.get("player_warscore") == 64.0
     assert detail.get("outcome") == 2
     assert detail.get("player_won") is True
-    assert detail.get("score_unreliable") is not True
 
     assessment = assess_player_wars(filtered)
-    assert assessment.standings[0].score_known is True
-    assert assessment.standings[0].player_score == 64.0
+    assert assessment.standings[0].score_known is False
     assert assessment.standings[0].tier == "victory"
+    assert assessment.standings[0].player_won is True
 
     names = NameResolver(country_names={"TEU": "Teutonic Order", "POL": "Poland"})
     ae = assess_player_ae(filtered)
+    war = _mock_war_section(filtered, names, ae, heading=False)
     md = _mock_editor(filtered, names, ae)
-    assert "+64" in md or "战分 +64" in md or "64" in md
+    assert "和约取胜" in war
+    assert "可靠战分" not in war
+    assert "可靠战分" not in md
+    assert "战分 +64" not in war
+    assert "战分 +64" not in md
     assert "-5" not in md
-    assert "和约取胜" in md
+    assert "战分落后" not in md
 
 
 def test_previous_only_unreliable_negative_omitted():

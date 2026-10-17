@@ -150,6 +150,7 @@ def extract_game_state(root: ObjectNode) -> GameState:
 
     _fill_ae_maps_from_relations(countries)
     _apply_opinion_cache(countries, countries_node, country_tag_order)
+    _apply_subject_types(countries, root)
 
     wars = _extract_wars(root)
     previous_wars = _extract_previous_wars(root)
@@ -477,6 +478,33 @@ def _apply_opinion_cache(
             rel = (c.relations or {}).get(other)
             if rel is not None:
                 rel.opinion = val
+
+
+def _apply_subject_types(
+    countries: dict[str, CountryState], root: ObjectNode
+) -> None:
+    """从 diplomacy.dependency 填充各国 subject_types（以 subjects 列表为准）。"""
+    diplo = root.get_object("diplomacy")
+    if diplo is None:
+        return
+    # overlord → {subject: type_id}
+    mapping: dict[str, dict[str, str]] = {}
+    for dep in diplo.all_objects("dependency"):
+        first = (dep.get_str("first") or "").strip().strip('"').upper()
+        second = (dep.get_str("second") or "").strip().strip('"').upper()
+        stype = (dep.get_str("subject_type") or "").strip().strip('"')
+        if not first or not second or not stype:
+            continue
+        # 已结束依赖（有 end_date 且早于当前）仍可能留在档内；仍以 subjects 列表裁剪
+        mapping.setdefault(first, {})[second] = stype
+    for tag, c in countries.items():
+        types = mapping.get(tag) or {}
+        if not c.subjects and not types:
+            continue
+        # 只保留仍在 subjects 中的类型；subjects 有而 dependency 无则留空类型
+        c.subject_types = {
+            s: types[s] for s in c.subjects if s in types
+        }
 
 
 def _fill_ae_maps_from_relations(countries: dict[str, CountryState]) -> None:
@@ -917,6 +945,10 @@ def _parse_one_war(
     attackers, defenders = _merge_sides_from_participants(
         attackers, defenders, participants
     )
+    original_attacker = (war.get_str("original_attacker") or "").strip().strip('"')
+    original_defender = (war.get_str("original_defender") or "").strip().strip('"')
+    attackers = _lead_side(attackers, original_attacker)
+    defenders = _lead_side(defenders, original_defender)
     goal = _parse_war_goal(war, history)
     battles = _parse_battles(history)
     # 已结束战争的「当前占领」对 curr 地图无意义，勿写入 0 处干扰文案
@@ -934,6 +966,8 @@ def _parse_one_war(
         attackers=attackers,
         defenders=defenders,
         participants=participants,
+        original_attacker=original_attacker,
+        original_defender=original_defender,
         attacker_score=war.get_float_optional("attacker_score"),
         defender_score=war.get_float_optional("defender_score"),
         last_warscore_quarter=war.get_float_optional("last_warscore_quarter"),
@@ -1267,6 +1301,16 @@ def _merge_sides_from_participants(
                 att = [x for x in att if x != tag]
                 att_set.discard(tag)
     return att, defe
+
+
+def _lead_side(tags: list[str], leader: str) -> list[str]:
+    """战争领袖放首位，避免字母序把附庸/盟友当成战争主角。"""
+    if not leader:
+        return list(tags)
+    rest = [t for t in tags if t != leader]
+    if leader in tags:
+        return [leader, *rest]
+    return [leader, *rest]
 
 
 def _sides_from_history(

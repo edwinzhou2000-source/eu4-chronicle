@@ -185,10 +185,10 @@ def _template_fallback(
     label = country_label or (lambda t: COUNTRY_ZH.get((t or "").upper(), t or "？"))
     att = attackers or []
     defe = defenders or []
-    att_s = "、".join(label(x) for x in att[:2]) if att else "未知进攻方"
+    # 名单首位应为战争领袖（original_attacker / original_defender），勿用字母序前两名
+    att_s = label(att[0]) if att else "未知进攻方"
     if place:
         return f"{att_s}征服·{place}"
     if defe:
-        def_s = "、".join(label(x) for x in defe[:2])
-        return f"{att_s}战争·{def_s}"
+        return f"{att_s}对{label(defe[0])}"
     return f"{att_s}战争"
